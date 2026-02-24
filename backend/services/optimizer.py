@@ -1,0 +1,363 @@
+"""
+Shift scheduling optimizer using Google OR-Tools CP-SAT solver.
+
+Hard constraints:
+  HC-01: Requested days off are always respected
+  HC-02: One job type per employee per day
+  HC-03: Daily required headcount per job type must be met
+  HC-04: Only assign job types the employee is qualified for
+  HC-05: No work on weekends/holidays
+
+Soft constraints (objective function):
+  SC-01: Minimize deviation from requested work days (weight 10)
+  SC-02: Minimize deviation from requested days off (weight 10)
+  SC-03: Minimize unfairness in work days across employees (weight 5)
+  SC-04: Minimize job type imbalance per employee (weight 1)
+"""
+
+from ortools.sat.python import cp_model
+from sqlalchemy.orm import Session
+from database import (
+    Employee, EmployeeJobType, ShiftRequest, RequestDetail,
+    DailyRequirement, Schedule, ShiftAssignment,
+)
+from routers.holidays import is_non_working_day
+from datetime import date, timedelta
+import calendar
+
+
+def generate_schedule(
+    db: Session,
+    month: str,
+    extra_constraints: list[dict] | None = None,
+) -> tuple[int, list[dict], list[str]]:
+    """
+    Generate an optimized shift schedule.
+
+    Returns: (schedule_id, assignments_list, violations_list)
+    """
+    year, mon = map(int, month.split("-"))
+    days_in_month = calendar.monthrange(year, mon)[1]
+    all_dates = [date(year, mon, d) for d in range(1, days_in_month + 1)]
+    working_dates = [d for d in all_dates if not is_non_working_day(d)]
+
+    # Load data
+    employees = db.query(Employee).order_by(Employee.id).all()
+    if not employees:
+        raise ValueError("No employees registered")
+
+    emp_ids = [e.id for e in employees]
+    emp_names = {e.id: e.name for e in employees}
+
+    # Employee -> allowed job type ids
+    emp_job_types: dict[int, list[int]] = {}
+    for e in employees:
+        ejts = db.query(EmployeeJobType).filter(EmployeeJobType.employee_id == e.id).all()
+        emp_job_types[e.id] = [ejt.job_type_id for ejt in ejts]
+
+    # All job type ids used in requirements
+    all_job_type_ids = sorted(
+        set(jt_id for jts in emp_job_types.values() for jt_id in jts)
+    )
+    if not all_job_type_ids:
+        raise ValueError("No job types assigned to any employee")
+
+    # Requested days off per employee
+    emp_days_off: dict[int, set[date]] = {}
+    emp_requested_work: dict[int, int | None] = {}
+    emp_requested_off: dict[int, int | None] = {}
+
+    for e_id in emp_ids:
+        req = (
+            db.query(ShiftRequest)
+            .filter(ShiftRequest.employee_id == e_id, ShiftRequest.target_month == month)
+            .first()
+        )
+        if req:
+            details = db.query(RequestDetail).filter(RequestDetail.shift_request_id == req.id).all()
+            emp_days_off[e_id] = {d.date for d in details}
+            emp_requested_work[e_id] = req.requested_work_days
+            emp_requested_off[e_id] = req.requested_days_off
+        else:
+            emp_days_off[e_id] = set()
+            emp_requested_work[e_id] = None
+            emp_requested_off[e_id] = None
+
+    # Daily requirements: date -> job_type_id -> required_count
+    daily_reqs: dict[date, dict[int, float]] = {}
+    start_date = date(year, mon, 1)
+    end_date = date(year, mon, days_in_month)
+    db_reqs = (
+        db.query(DailyRequirement)
+        .filter(DailyRequirement.date >= start_date, DailyRequirement.date <= end_date)
+        .all()
+    )
+    for dr in db_reqs:
+        if dr.date not in daily_reqs:
+            daily_reqs[dr.date] = {}
+        daily_reqs[dr.date][dr.job_type_id] = dr.required_count
+
+    # ---- Build CP-SAT Model ----
+    model = cp_model.CpModel()
+
+    # Decision variables: x[e, d, j] = 1 if employee e works on date d doing job j (full day)
+    # For simplicity, we model full-day assignments first
+    x = {}
+    for e_id in emp_ids:
+        for d in working_dates:
+            for j in all_job_type_ids:
+                x[e_id, d, j] = model.new_bool_var(f"x_{e_id}_{d}_{j}")
+
+    # work[e, d] = 1 if employee e works on date d (any job)
+    work = {}
+    for e_id in emp_ids:
+        for d in working_dates:
+            work[e_id, d] = model.new_bool_var(f"work_{e_id}_{d}")
+
+    # Link work to x
+    for e_id in emp_ids:
+        for d in working_dates:
+            model.add(work[e_id, d] == sum(x[e_id, d, j] for j in all_job_type_ids))
+
+    # HC-01: Requested days off -> must not work
+    for e_id in emp_ids:
+        for d in working_dates:
+            if d in emp_days_off[e_id]:
+                model.add(work[e_id, d] == 0)
+
+    # HC-02: At most one job type per day (already implied by work = sum(x))
+    for e_id in emp_ids:
+        for d in working_dates:
+            model.add(sum(x[e_id, d, j] for j in all_job_type_ids) <= 1)
+
+    # HC-04: Only assign qualified job types
+    for e_id in emp_ids:
+        allowed = emp_job_types.get(e_id, [])
+        for d in working_dates:
+            for j in all_job_type_ids:
+                if j not in allowed:
+                    model.add(x[e_id, d, j] == 0)
+
+    # HC-03: Meet daily requirements (using integer scaling: multiply by 2 for 0.5 support)
+    violations = []
+    for d in working_dates:
+        if d not in daily_reqs:
+            continue
+        for j, req_count in daily_reqs[d].items():
+            # Scale: req_count * 2 must be met by sum of x * 2 (full day = 2 half-units)
+            scaled_req = int(req_count * 2)
+            supply = sum(
+                x[e_id, d, j] * 2
+                for e_id in emp_ids
+                if j in emp_job_types.get(e_id, [])
+            )
+            model.add(supply >= scaled_req)
+
+    # Apply extra constraints from NLP modifications
+    if extra_constraints:
+        for c in extra_constraints:
+            _apply_extra_constraint(model, x, work, c, emp_ids, emp_names,
+                                    working_dates, all_job_type_ids, emp_job_types, db)
+
+    # ---- Soft constraints via objective ----
+    total_working_dates = len(working_dates)
+
+    # Total work days per employee
+    emp_total_work = {}
+    for e_id in emp_ids:
+        emp_total_work[e_id] = model.new_int_var(0, total_working_dates, f"tw_{e_id}")
+        model.add(emp_total_work[e_id] == sum(work[e_id, d] for d in working_dates))
+
+    objective_terms = []
+
+    # SC-01 & SC-02: Deviation from requested work/off days
+    for e_id in emp_ids:
+        rw = emp_requested_work.get(e_id)
+        if rw is not None:
+            dev = model.new_int_var(0, total_working_dates, f"dev_work_{e_id}")
+            model.add(dev >= emp_total_work[e_id] - rw)
+            model.add(dev >= rw - emp_total_work[e_id])
+            objective_terms.append(dev * 10)
+
+        ro = emp_requested_off.get(e_id)
+        if ro is not None:
+            actual_off = model.new_int_var(0, total_working_dates + 30, f"off_{e_id}")
+            # Days off = total_dates_in_month - work_days
+            non_working_count = len(all_dates) - total_working_dates
+            # actual_off_in_working_dates = total_working_dates - emp_total_work[e_id]
+            # total_off = non_working_count + actual_off_in_working_dates
+            model.add(actual_off == non_working_count + total_working_dates - emp_total_work[e_id])
+            dev_off = model.new_int_var(0, total_working_dates + 30, f"dev_off_{e_id}")
+            model.add(dev_off >= actual_off - ro)
+            model.add(dev_off >= ro - actual_off)
+            objective_terms.append(dev_off * 10)
+
+    # SC-03: Fairness - minimize max - min work days
+    if len(emp_ids) > 1:
+        max_work = model.new_int_var(0, total_working_dates, "max_work")
+        min_work = model.new_int_var(0, total_working_dates, "min_work")
+        model.add_max_equality(max_work, [emp_total_work[e_id] for e_id in emp_ids])
+        model.add_min_equality(min_work, [emp_total_work[e_id] for e_id in emp_ids])
+        fairness_diff = model.new_int_var(0, total_working_dates, "fairness_diff")
+        model.add(fairness_diff == max_work - min_work)
+        objective_terms.append(fairness_diff * 5)
+
+    # SC-04: Job type balance per employee
+    for e_id in emp_ids:
+        allowed = emp_job_types.get(e_id, [])
+        if len(allowed) <= 1:
+            continue
+        job_counts = []
+        for j in allowed:
+            jc = model.new_int_var(0, total_working_dates, f"jc_{e_id}_{j}")
+            model.add(jc == sum(x[e_id, d, j] for d in working_dates))
+            job_counts.append(jc)
+        # Minimize max - min among job counts
+        if len(job_counts) >= 2:
+            max_jc = model.new_int_var(0, total_working_dates, f"max_jc_{e_id}")
+            min_jc = model.new_int_var(0, total_working_dates, f"min_jc_{e_id}")
+            model.add_max_equality(max_jc, job_counts)
+            model.add_min_equality(min_jc, job_counts)
+            jc_diff = model.new_int_var(0, total_working_dates, f"jc_diff_{e_id}")
+            model.add(jc_diff == max_jc - min_jc)
+            objective_terms.append(jc_diff * 1)
+
+    if objective_terms:
+        model.minimize(sum(objective_terms))
+
+    # ---- Solve ----
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 30.0
+    status = solver.solve(model)
+
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        raise ValueError("Could not find a feasible schedule. Check constraints and data.")
+
+    # ---- Save results ----
+    schedule = Schedule(target_month=month, status="preview")
+    from datetime import datetime
+    schedule.generated_at = datetime.utcnow()
+    db.add(schedule)
+    db.flush()
+
+    assignments = []
+    for e_id in emp_ids:
+        for d in all_dates:
+            if is_non_working_day(d):
+                # Off day (weekend/holiday)
+                a = ShiftAssignment(
+                    schedule_id=schedule.id,
+                    employee_id=e_id,
+                    date=d,
+                    job_type_id=None,
+                    work_type="off",
+                    headcount_value=0,
+                )
+                db.add(a)
+                assignments.append({
+                    "employee_id": e_id,
+                    "employee_name": emp_names[e_id],
+                    "date": d.isoformat(),
+                    "job_type_id": None,
+                    "work_type": "off",
+                    "headcount_value": 0,
+                })
+                continue
+
+            assigned_job = None
+            for j in all_job_type_ids:
+                if solver.value(x[e_id, d, j]) == 1:
+                    assigned_job = j
+                    break
+
+            if assigned_job:
+                a = ShiftAssignment(
+                    schedule_id=schedule.id,
+                    employee_id=e_id,
+                    date=d,
+                    job_type_id=assigned_job,
+                    work_type="full",
+                    headcount_value=1.0,
+                )
+            else:
+                a = ShiftAssignment(
+                    schedule_id=schedule.id,
+                    employee_id=e_id,
+                    date=d,
+                    job_type_id=None,
+                    work_type="off",
+                    headcount_value=0,
+                )
+            db.add(a)
+            assignments.append({
+                "employee_id": e_id,
+                "employee_name": emp_names[e_id],
+                "date": d.isoformat(),
+                "job_type_id": assigned_job,
+                "work_type": a.work_type,
+                "headcount_value": a.headcount_value,
+            })
+
+    db.commit()
+
+    # Check for violations
+    for d in working_dates:
+        if d not in daily_reqs:
+            continue
+        for j, req_count in daily_reqs[d].items():
+            actual = sum(
+                1 for e_id in emp_ids
+                if solver.value(x.get((e_id, d, j), model.new_constant(0))) == 1
+            )
+            if actual < req_count:
+                violations.append(
+                    f"{d.isoformat()} - job_type {j}: needed {req_count}, got {actual}"
+                )
+
+    return schedule.id, assignments, violations
+
+
+def _apply_extra_constraint(
+    model, x, work, constraint, emp_ids, emp_names,
+    working_dates, all_job_type_ids, emp_job_types, db
+):
+    """Apply an extra constraint from NLP modification."""
+    action = constraint.get("action")
+    emp_name = constraint.get("employee_name")
+    job_type_name = constraint.get("job_type")
+    amount = constraint.get("amount")
+
+    # Find employee id
+    target_emp = None
+    for e_id, name in emp_names.items():
+        if name == emp_name:
+            target_emp = e_id
+            break
+    if target_emp is None:
+        return
+
+    # Find job type id
+    from database import JobType
+    from sqlalchemy.orm import Session
+    target_jt = None
+    # We need to look up job type by name - use a simple approach
+    for j in all_job_type_ids:
+        jt = db.query(JobType).filter(JobType.id == j).first()
+        if jt and jt.name == job_type_name:
+            target_jt = j
+            break
+
+    if target_jt is None:
+        return
+
+    # Count of job_type assignments for employee
+    jt_count = model.new_int_var(0, len(working_dates), f"nlp_jc_{target_emp}_{target_jt}")
+    model.add(jt_count == sum(x[target_emp, d, target_jt] for d in working_dates))
+
+    if action == "increase" and amount:
+        # Current approximate count + amount
+        model.add(jt_count >= amount)
+    elif action == "decrease" and amount:
+        model.add(jt_count <= max(0, amount))
+    elif action == "set" and amount is not None:
+        model.add(jt_count == amount)
