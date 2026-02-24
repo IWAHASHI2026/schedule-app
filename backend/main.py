@@ -6,17 +6,27 @@ from routers import employees, job_types, requests, requirements, schedules, nlp
 
 app = FastAPI(title="Shift Scheduler API", version="1.0.0")
 
-# CORS: allow frontend origins (local + Vercel)
+# CORS: allow frontend origins (local + Vercel + FRONTEND_URL)
 allowed_origins = [
     "http://localhost:3000",
     "http://localhost:3003",
 ]
 if os.getenv("FRONTEND_URL"):
-    allowed_origins.append(os.getenv("FRONTEND_URL"))
+    furl = os.getenv("FRONTEND_URL", "").rstrip("/")
+    allowed_origins.append(furl)
+    # Allow both http and https for the same domain
+    if furl.startswith("https://"):
+        allowed_origins.append(furl.replace("https://", "http://"))
+    elif furl.startswith("http://"):
+        allowed_origins.append(furl.replace("http://", "https://"))
+
+# Regex for Vercel deployments (*.vercel.app)
+allow_origin_regex = r"https://.*\.vercel\.app"
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

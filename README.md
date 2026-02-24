@@ -46,6 +46,28 @@ npm run dev
 - バックエンド API: http://localhost:8000
 - API ドキュメント: http://localhost:8000/docs
 
+## デプロイ (Vercel + Railway)
+
+### Vercel（フロントエンド）
+
+1. [Vercel](https://vercel.com) で New Project → GitHub から `schedule-app` を選択
+2. **Root Directory** を `frontend` に設定
+3. **Framework Preset** を `Next.js` に設定
+4. **Output Directory** は**空のまま**（Next.js は自動で `.next` を使用）
+5. 環境変数 `NEXT_PUBLIC_API_URL` に Railway の API URL を設定（例: `https://xxx.railway.app`）
+6. Deploy
+
+### Railway（バックエンド）
+
+1. [Railway](https://railway.app) で New Project → GitHub から `schedule-app` を選択
+2. **Root Directory** を `backend` に設定
+3. 環境変数を設定:
+   - `FRONTEND_URL`: Vercel の URL（例: `https://schedule-app-xxx.vercel.app`）
+   - `ANTHROPIC_API_KEY`: 自然言語修正機能を使う場合
+4. Deploy → 生成された URL を `NEXT_PUBLIC_API_URL` に設定して Vercel を再デプロイ
+
+> **注意**: Railway の無料プランでは SQLite のデータは再デプロイ時にリセットされます。本番運用では PostgreSQL 等の推奨。
+
 ## 画面構成
 
 | パス | 画面名 | 説明 |
