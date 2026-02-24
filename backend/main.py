@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
@@ -5,9 +6,17 @@ from routers import employees, job_types, requests, requirements, schedules, nlp
 
 app = FastAPI(title="Shift Scheduler API", version="1.0.0")
 
+# CORS: allow frontend origins (local + Vercel)
+allowed_origins = [
+    "http://localhost:3000",
+    "http://localhost:3003",
+]
+if os.getenv("FRONTEND_URL"):
+    allowed_origins.append(os.getenv("FRONTEND_URL"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
