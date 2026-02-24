@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,7 @@ import {
   type Employee, type JobType, type Schedule, type ShiftAssignment, type Holiday,
 } from "@/lib/api";
 
-export default function SharePage() {
+function SharePageContent() {
   const searchParams = useSearchParams();
   const month = searchParams.get("month") || "";
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -199,5 +199,17 @@ export default function SharePage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function SharePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-muted-foreground">読み込み中...</p>
+      </div>
+    }>
+      <SharePageContent />
+    </Suspense>
   );
 }
