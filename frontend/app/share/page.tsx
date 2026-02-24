@@ -45,10 +45,13 @@ export default function SharePage() {
         setEmployees(emps);
         setJobTypes(jts);
         setHolidays(hols);
-        const published = scheds.find((s) => s.status === "published");
-        if (published) {
-          setSchedule(published);
-          setAssignments(await getAssignments(published.id));
+        // Prefer published > confirmed > any latest
+        const target = scheds.find((s) => s.status === "published")
+          || scheds.find((s) => s.status === "confirmed")
+          || scheds[0];
+        if (target) {
+          setSchedule(target);
+          setAssignments(await getAssignments(target.id));
         }
       } finally {
         setLoading(false);
@@ -109,7 +112,9 @@ export default function SharePage() {
         <h1 className="text-2xl font-bold">
           シフト表 — {calYear}年{calMonth}月
         </h1>
-        <Badge variant="success">公開中</Badge>
+        <Badge variant={schedule.status === "published" ? "success" : schedule.status === "confirmed" ? "default" : "secondary"}>
+          {schedule.status === "published" ? "公開中" : schedule.status === "confirmed" ? "確定" : "プレビュー"}
+        </Badge>
       </div>
 
       <Card>
@@ -149,9 +154,7 @@ export default function SharePage() {
                           className={`px-1 py-1 border text-center ${isNW ? "bg-gray-100" : ""}`}
                           style={a?.job_type_color && a.work_type !== "off" ? { backgroundColor: a.job_type_color + "30" } : {}}
                         >
-                          {a?.work_type === "off" ? (
-                            <span className="text-gray-400">休</span>
-                          ) : (
+                          {a?.work_type === "off" ? null : (
                             <span style={{ color: a?.job_type_color || undefined }} className="font-bold text-[11px]">
                               {a?.job_type_name?.charAt(0) || ""}
                             </span>

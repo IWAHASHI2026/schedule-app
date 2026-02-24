@@ -186,9 +186,7 @@ export default function SchedulePage() {
                             className={`px-1 py-1 border text-center cursor-pointer hover:ring-2 hover:ring-blue-300 ${isNW ? "bg-gray-100" : ""} ${isEditing ? "ring-2 ring-blue-500" : ""}`}
                             style={a?.job_type_color && a.work_type !== "off" ? { backgroundColor: a.job_type_color + "30" } : {}}
                           >
-                            {a?.work_type === "off" ? (
-                              <span className="text-gray-400">休</span>
-                            ) : (
+                            {a?.work_type === "off" ? null : (
                               <span style={{ color: a?.job_type_color || undefined }} className="font-bold text-[11px]">
                                 {a?.job_type_name?.charAt(0) || ""}
                               </span>
