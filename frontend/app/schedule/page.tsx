@@ -91,6 +91,20 @@ export default function SchedulePage() {
       .reduce((sum, a) => sum + a.headcount_value, 0);
   };
 
+  // Daily total (all job types)
+  const getDailyTotal = (dateStr: string) => {
+    return assignments
+      .filter((a) => a.date === dateStr && a.work_type !== "off")
+      .reduce((sum, a) => sum + a.headcount_value, 0);
+  };
+
+  // Staff total work days
+  const getStaffTotal = (empId: number) => {
+    return assignments
+      .filter((a) => a.employee_id === empId && a.work_type !== "off")
+      .reduce((sum, a) => sum + a.headcount_value, 0);
+  };
+
   const dowNames = ["日", "月", "火", "水", "木", "金", "土"];
 
   return (
@@ -153,6 +167,7 @@ export default function SchedulePage() {
                         </th>
                       );
                     })}
+                    <th className="px-2 py-1 border text-center min-w-[40px] bg-muted/50">合計</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -181,6 +196,9 @@ export default function SchedulePage() {
                           </td>
                         );
                       })}
+                      <td className="px-1 py-1 border text-center font-bold bg-muted/50">
+                        {getStaffTotal(emp.id) || ""}
+                      </td>
                     </tr>
                   ))}
                   {/* Summary rows */}
@@ -194,8 +212,22 @@ export default function SchedulePage() {
                           {getSummary(d, jt.id) || ""}
                         </td>
                       ))}
+                      <td className="px-1 py-1 border" />
                     </tr>
                   ))}
+                  <tr className="bg-muted/60 font-bold">
+                    <td className="sticky left-0 bg-muted/60 z-10 px-2 py-1 border text-[10px]">日合計</td>
+                    {allDates.map((d) => {
+                      const dow = new Date(d).getDay();
+                      const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
+                      return (
+                        <td key={d} className="px-1 py-1 border text-center text-[10px]">
+                          {isNW ? "" : getDailyTotal(d) || ""}
+                        </td>
+                      );
+                    })}
+                    <td className="px-1 py-1 border" />
+                  </tr>
                 </tbody>
               </table>
             </div>
