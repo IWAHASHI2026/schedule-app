@@ -23,14 +23,15 @@ export interface JobType {
 export interface Employee {
   id: number;
   name: string;
+  employment_type: string;  // "full_time" or "dependent"
   job_types: JobType[];
 }
 
 export const getEmployees = () => request<Employee[]>("/employees");
-export const createEmployee = (name: string) =>
-  request<Employee>("/employees", { method: "POST", body: JSON.stringify({ name }) });
-export const updateEmployee = (id: number, name: string) =>
-  request<Employee>(`/employees/${id}`, { method: "PUT", body: JSON.stringify({ name }) });
+export const createEmployee = (name: string, employment_type: string = "full_time") =>
+  request<Employee>("/employees", { method: "POST", body: JSON.stringify({ name, employment_type }) });
+export const updateEmployee = (id: number, name: string, employment_type: string = "full_time") =>
+  request<Employee>(`/employees/${id}`, { method: "PUT", body: JSON.stringify({ name, employment_type }) });
 export const deleteEmployee = (id: number) =>
   request<void>(`/employees/${id}`, { method: "DELETE" });
 export const updateEmployeeJobTypes = (id: number, job_type_ids: number[]) =>
@@ -46,6 +47,7 @@ export const getJobTypes = () => request<JobType[]>("/job-types");
 export interface RequestDetail {
   id: number;
   date: string;
+  period: string;  // "am", "pm", or "all_day"
 }
 
 export interface ShiftRequest {
@@ -53,8 +55,7 @@ export interface ShiftRequest {
   employee_id: number;
   employee_name: string;
   target_month: string;
-  requested_work_days: number | null;
-  requested_days_off: number | null;
+  requested_work_days: string | null;  // "1"-"23" or "max"
   note: string | null;
   details: RequestDetail[];
 }
@@ -74,10 +75,9 @@ export const getEmployeeRequest = (employeeId: number, month: string) =>
 export const upsertRequest = (data: {
   employee_id: number;
   target_month: string;
-  requested_work_days?: number | null;
-  requested_days_off?: number | null;
+  requested_work_days?: string | null;  // "1"-"23" or "max"
   note?: string | null;
-  days_off: string[];
+  days_off: { date: string; period: string }[];
 }) => request<ShiftRequest>("/requests", { method: "POST", body: JSON.stringify(data) });
 
 // ---- Daily Requirements ----
@@ -174,8 +174,7 @@ export interface EmployeeReport {
   employee_name: string;
   total_work_days: number;
   total_days_off: number;
-  requested_work_days: number | null;
-  requested_days_off: number | null;
+  requested_work_days: string | null;  // "1"-"23" or "max"
   job_type_counts: Record<string, number>;
 }
 

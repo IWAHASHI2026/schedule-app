@@ -24,9 +24,9 @@ export default function RequestsPage() {
   const [selectedEmpId, setSelectedEmpId] = useState<string>("");
   const [selectedDaysOff, setSelectedDaysOff] = useState<Set<string>>(new Set());
   const [workDays, setWorkDays] = useState<string>("");
-  const [daysOff, setDaysOff] = useState<string>("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const load = async () => {
     const [emps, sts, hols] = await Promise.all([
@@ -45,15 +45,22 @@ export default function RequestsPage() {
     setSelectedEmpId(empId);
     setSelectedDaysOff(new Set());
     setWorkDays("");
-    setDaysOff("");
     setNote("");
     if (!empId) return;
     try {
       const { getEmployeeRequest } = await import("@/lib/api");
       const req = await getEmployeeRequest(parseInt(empId), month);
-      setSelectedDaysOff(new Set(req.details.map((d) => d.date)));
-      setWorkDays(req.requested_work_days?.toString() || "");
-      setDaysOff(req.requested_days_off?.toString() || "");
+      const keys = new Set<string>();
+      for (const d of req.details) {
+        if (d.period === "am" || d.period === "pm") {
+          keys.add(`${d.date}_${d.period}`);
+        } else {
+          keys.add(`${d.date}_am`);
+          keys.add(`${d.date}_pm`);
+        }
+      }
+      setSelectedDaysOff(keys);
+      setWorkDays(req.requested_work_days || "");
       setNote(req.note || "");
     } catch {
       // No existing request
@@ -67,12 +74,31 @@ export default function RequestsPage() {
       await upsertRequest({
         employee_id: parseInt(selectedEmpId),
         target_month: month,
-        requested_work_days: workDays ? parseInt(workDays) : null,
-        requested_days_off: daysOff ? parseInt(daysOff) : null,
+        requested_work_days: workDays && workDays !== "__none__" ? workDays : null,
         note: note || null,
-        days_off: Array.from(selectedDaysOff),
+        days_off: (() => {
+          const dateMap = new Map<string, Set<string>>();
+          for (const key of selectedDaysOff) {
+            const [dateStr, period] = key.split("_");
+            if (!dateMap.has(dateStr)) dateMap.set(dateStr, new Set());
+            dateMap.get(dateStr)!.add(period);
+          }
+          const result: { date: string; period: string }[] = [];
+          for (const [dateStr, periods] of dateMap) {
+            if (periods.has("am") && periods.has("pm")) {
+              result.push({ date: dateStr, period: "all_day" });
+            } else {
+              for (const p of periods) {
+                result.push({ date: dateStr, period: p });
+              }
+            }
+          }
+          return result;
+        })(),
       });
       load();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
     } finally {
       setSaving(false);
     }
@@ -84,11 +110,12 @@ export default function RequestsPage() {
   const firstDow = new Date(calYear, calMonth - 1, 1).getDay();
   const holidayDates = new Set(holidays.map((h) => h.date));
 
-  const toggleDay = (dateStr: string) => {
+  const togglePeriod = (dateStr: string, period: "am" | "pm") => {
     setSelectedDaysOff((prev) => {
       const next = new Set(prev);
-      if (next.has(dateStr)) next.delete(dateStr);
-      else next.add(dateStr);
+      const key = `${dateStr}_${period}`;
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -159,30 +186,39 @@ export default function RequestsPage() {
                       const dow = new Date(calYear, calMonth - 1, day).getDay();
                       const isWeekend = dow === 0 || dow === 6;
                       const isHoliday = holidayDates.has(dateStr);
-                      const isSelected = selectedDaysOff.has(dateStr);
                       const isNonWorking = isWeekend || isHoliday;
+                      const amSelected = selectedDaysOff.has(`${dateStr}_am`);
+                      const pmSelected = selectedDaysOff.has(`${dateStr}_pm`);
 
                       return (
-                        <button
-                          key={di}
-                          onClick={() => !isNonWorking && toggleDay(dateStr)}
-                          disabled={isNonWorking}
-                          className={`
-                            h-10 rounded text-sm transition-colors
-                            ${isNonWorking ? "bg-gray-100 text-gray-400 cursor-not-allowed" : ""}
-                            ${isSelected ? "bg-blue-500 text-white font-bold" : ""}
-                            ${!isNonWorking && !isSelected ? "hover:bg-blue-100 cursor-pointer" : ""}
-                          `}
-                        >
-                          {day}
-                        </button>
+                        <div key={di} className={`rounded text-sm overflow-hidden border ${isNonWorking ? "bg-gray-100 text-gray-400" : "border-gray-200"}`}>
+                          <div className="text-center text-xs py-0.5 font-medium">{day}</div>
+                          {isNonWorking ? (
+                            <div className="h-8" />
+                          ) : (
+                            <div className="flex flex-col">
+                              <button
+                                onClick={() => togglePeriod(dateStr, "am")}
+                                className={`h-4 text-[10px] leading-none transition-colors ${amSelected ? "bg-blue-500 text-white" : "hover:bg-blue-100"}`}
+                              >
+                                午前
+                              </button>
+                              <button
+                                onClick={() => togglePeriod(dateStr, "pm")}
+                                className={`h-4 text-[10px] leading-none transition-colors ${pmSelected ? "bg-blue-500 text-white" : "hover:bg-blue-100"}`}
+                              >
+                                午後
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
                 ))}
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                選択中の希望休日: {selectedDaysOff.size}日
+                選択中の希望休日: {selectedDaysOff.size}件（午前/午後）
               </p>
             </CardContent>
           </Card>
@@ -195,25 +231,20 @@ export default function RequestsPage() {
               <CardContent className="space-y-4">
                 <div>
                   <Label>希望出勤日数</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={workDays}
-                    onChange={(e) => setWorkDays(e.target.value)}
-                    className="mt-1 w-32"
-                    placeholder="例: 20"
-                  />
-                </div>
-                <div>
-                  <Label>希望休日数</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={daysOff}
-                    onChange={(e) => setDaysOff(e.target.value)}
-                    className="mt-1 w-32"
-                    placeholder="例: 8"
-                  />
+                  <Select value={workDays} onValueChange={setWorkDays}>
+                    <SelectTrigger className="mt-1 w-48">
+                      <SelectValue placeholder="選択してください" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">未選択</SelectItem>
+                      {Array.from({ length: 23 }, (_, i) => i + 1).map((n) => (
+                        <SelectItem key={n} value={String(n)}>
+                          {n}日
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="max">なるべく多く</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label>備考</Label>
@@ -228,6 +259,9 @@ export default function RequestsPage() {
                   <Save className="mr-2 h-4 w-4" />
                   {saving ? "保存中..." : "保存"}
                 </Button>
+                {saved && (
+                  <p className="text-green-600 text-sm font-medium text-center mt-2">保存しました</p>
+                )}
               </CardContent>
             </Card>
           </div>

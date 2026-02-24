@@ -10,9 +10,10 @@ Hard constraints:
 
 Soft constraints (objective function):
   SC-01: Minimize deviation from requested work days (weight 10)
-  SC-02: Minimize deviation from requested days off (weight 10)
+       - "max" = maximize work days (penalize non-work)
   SC-03: Minimize unfairness in work days across employees (weight 5)
   SC-04: Minimize job type imbalance per employee (weight 1)
+  SC-05: Prefer higher-priority job types (lower ID = higher priority, weight 2)
 """
 
 from ortools.sat.python import cp_model
@@ -64,8 +65,7 @@ def generate_schedule(
 
     # Requested days off per employee
     emp_days_off: dict[int, set[date]] = {}
-    emp_requested_work: dict[int, int | None] = {}
-    emp_requested_off: dict[int, int | None] = {}
+    emp_requested_work: dict[int, str | None] = {}  # "1"-"23" or "max" or None
 
     for e_id in emp_ids:
         req = (
@@ -76,12 +76,10 @@ def generate_schedule(
         if req:
             details = db.query(RequestDetail).filter(RequestDetail.shift_request_id == req.id).all()
             emp_days_off[e_id] = {d.date for d in details}
-            emp_requested_work[e_id] = req.requested_work_days
-            emp_requested_off[e_id] = req.requested_days_off
+            emp_requested_work[e_id] = str(req.requested_work_days) if req.requested_work_days is not None else None
         else:
             emp_days_off[e_id] = set()
             emp_requested_work[e_id] = None
-            emp_requested_off[e_id] = None
 
     # Daily requirements: date -> job_type_id -> required_count
     daily_reqs: dict[date, dict[int, float]] = {}
@@ -170,27 +168,21 @@ def generate_schedule(
 
     objective_terms = []
 
-    # SC-01 & SC-02: Deviation from requested work/off days
+    # SC-01: Deviation from requested work days
     for e_id in emp_ids:
         rw = emp_requested_work.get(e_id)
-        if rw is not None:
+        if rw == "max":
+            # Maximize work days: penalize non-working days
+            not_work_count = model.new_int_var(0, total_working_dates, f"not_work_{e_id}")
+            model.add(not_work_count == total_working_dates - emp_total_work[e_id])
+            objective_terms.append(not_work_count * 10)
+        elif rw is not None:
+            # Target specific number of work days
+            target = int(rw)
             dev = model.new_int_var(0, total_working_dates, f"dev_work_{e_id}")
-            model.add(dev >= emp_total_work[e_id] - rw)
-            model.add(dev >= rw - emp_total_work[e_id])
+            model.add(dev >= emp_total_work[e_id] - target)
+            model.add(dev >= target - emp_total_work[e_id])
             objective_terms.append(dev * 10)
-
-        ro = emp_requested_off.get(e_id)
-        if ro is not None:
-            actual_off = model.new_int_var(0, total_working_dates + 30, f"off_{e_id}")
-            # Days off = total_dates_in_month - work_days
-            non_working_count = len(all_dates) - total_working_dates
-            # actual_off_in_working_dates = total_working_dates - emp_total_work[e_id]
-            # total_off = non_working_count + actual_off_in_working_dates
-            model.add(actual_off == non_working_count + total_working_dates - emp_total_work[e_id])
-            dev_off = model.new_int_var(0, total_working_dates + 30, f"dev_off_{e_id}")
-            model.add(dev_off >= actual_off - ro)
-            model.add(dev_off >= ro - actual_off)
-            objective_terms.append(dev_off * 10)
 
     # SC-03: Fairness - minimize max - min work days
     if len(emp_ids) > 1:
@@ -221,6 +213,13 @@ def generate_schedule(
             jc_diff = model.new_int_var(0, total_working_dates, f"jc_diff_{e_id}")
             model.add(jc_diff == max_jc - min_jc)
             objective_terms.append(jc_diff * 1)
+
+    # SC-05: Priority cost - prefer lower job_type_id (1=職人, 2=サブ, 3=データ, 4=その他)
+    priority_weight = 2
+    for e_id in emp_ids:
+        for d in working_dates:
+            for j in all_job_type_ids:
+                objective_terms.append(x[e_id, d, j] * j * priority_weight)
 
     if objective_terms:
         model.minimize(sum(objective_terms))

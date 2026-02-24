@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db, Schedule, ShiftAssignment, Employee, ShiftRequest, JobType
 from models import ReportOut, EmployeeReportOut
+from routers.holidays import is_non_working_day
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -37,7 +38,7 @@ def get_report(month: str, db: Session = Depends(get_db)):
         off_assignments = [a for a in emp_assignments if a.work_type == "off"]
 
         total_work = sum(a.headcount_value for a in work_assignments)
-        total_off = len(off_assignments)
+        total_off = len([a for a in off_assignments if not is_non_working_day(a.date)])
 
         jt_counts: dict[str, float] = {}
         for a in work_assignments:
@@ -56,8 +57,7 @@ def get_report(month: str, db: Session = Depends(get_db)):
             employee_name=emp.name,
             total_work_days=total_work,
             total_days_off=total_off,
-            requested_work_days=req.requested_work_days if req else None,
-            requested_days_off=req.requested_days_off if req else None,
+            requested_work_days=str(req.requested_work_days) if req and req.requested_work_days is not None else None,
             job_type_counts=jt_counts,
         ))
         work_days_list.append(total_work)

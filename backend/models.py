@@ -7,9 +7,11 @@ from datetime import date
 
 class EmployeeCreate(BaseModel):
     name: str
+    employment_type: str = "full_time"  # "full_time" or "dependent"
 
 class EmployeeUpdate(BaseModel):
     name: str
+    employment_type: str = "full_time"
 
 class JobTypeOut(BaseModel):
     id: int
@@ -19,6 +21,7 @@ class JobTypeOut(BaseModel):
 class EmployeeOut(BaseModel):
     id: int
     name: str
+    employment_type: str = "full_time"
     job_types: list[JobTypeOut] = []
 
 class EmployeeJobTypesUpdate(BaseModel):
@@ -27,25 +30,28 @@ class EmployeeJobTypesUpdate(BaseModel):
 
 # ---- Shift Requests ----
 
+class DayOffItem(BaseModel):
+    date: date
+    period: str = "all_day"  # "am", "pm", or "all_day"
+
 class ShiftRequestCreate(BaseModel):
     employee_id: int
     target_month: str
-    requested_work_days: Optional[int] = None
-    requested_days_off: Optional[int] = None
+    requested_work_days: Optional[str] = None  # "1"-"23" or "max"
     note: Optional[str] = None
-    days_off: list[date] = []
+    days_off: list[DayOffItem] = []
 
 class RequestDetailOut(BaseModel):
     id: int
     date: date
+    period: str = "all_day"
 
 class ShiftRequestOut(BaseModel):
     id: int
     employee_id: int
     employee_name: str = ""
     target_month: str
-    requested_work_days: Optional[int] = None
-    requested_days_off: Optional[int] = None
+    requested_work_days: Optional[str] = None
     note: Optional[str] = None
     details: list[RequestDetailOut] = []
 
@@ -141,8 +147,7 @@ class EmployeeReportOut(BaseModel):
     employee_name: str
     total_work_days: float
     total_days_off: int
-    requested_work_days: Optional[int] = None
-    requested_days_off: Optional[int] = None
+    requested_work_days: Optional[str] = None
     job_type_counts: dict[str, float] = {}
 
 class ReportOut(BaseModel):

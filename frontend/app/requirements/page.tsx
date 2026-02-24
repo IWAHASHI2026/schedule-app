@@ -85,8 +85,10 @@ export default function RequirementsPage() {
       if (val <= 0) continue;
       const [dowStr, jtIdStr] = key.split("_");
       const dow = parseInt(dowStr);
-      if (!weekdayReqs[dow]) weekdayReqs[dow] = [];
-      weekdayReqs[dow].push({ job_type_id: parseInt(jtIdStr), required_count: val });
+      // Convert JS getDay() style (1=Mon..5=Fri) to Python weekday() style (0=Mon..4=Fri)
+      const pyDow = dow - 1;
+      if (!weekdayReqs[pyDow]) weekdayReqs[pyDow] = [];
+      weekdayReqs[pyDow].push({ job_type_id: parseInt(jtIdStr), required_count: val });
     }
     await applyTemplate({ month, weekday_requirements: weekdayReqs });
     load();

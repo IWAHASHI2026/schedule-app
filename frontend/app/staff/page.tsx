@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import {
   getEmployees, createEmployee, updateEmployee, deleteEmployee,
@@ -19,9 +20,11 @@ export default function StaffPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
   const [newName, setNewName] = useState("");
+  const [newEmploymentType, setNewEmploymentType] = useState("full_time");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [editJobTypes, setEditJobTypes] = useState<number[]>([]);
+  const [editEmploymentType, setEditEmploymentType] = useState("full_time");
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const load = async () => {
@@ -34,8 +37,9 @@ export default function StaffPage() {
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
-    await createEmployee(newName.trim());
+    await createEmployee(newName.trim(), newEmploymentType);
     setNewName("");
+    setNewEmploymentType("full_time");
     load();
   };
 
@@ -48,13 +52,14 @@ export default function StaffPage() {
   const openEdit = (emp: Employee) => {
     setEditingId(emp.id);
     setEditName(emp.name);
+    setEditEmploymentType(emp.employment_type || "full_time");
     setEditJobTypes(emp.job_types.map((jt) => jt.id));
     setDialogOpen(true);
   };
 
   const handleSaveEdit = async () => {
     if (editingId === null) return;
-    await updateEmployee(editingId, editName);
+    await updateEmployee(editingId, editName, editEmploymentType);
     await updateEmployeeJobTypes(editingId, editJobTypes);
     setDialogOpen(false);
     setEditingId(null);
@@ -76,7 +81,7 @@ export default function StaffPage() {
           <CardTitle className="text-lg">新規スタッフ登録</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-end">
             <Input
               placeholder="氏名を入力"
               value={newName}
@@ -84,6 +89,15 @@ export default function StaffPage() {
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               className="max-w-xs"
             />
+            <Select value={newEmploymentType} onValueChange={setNewEmploymentType}>
+              <SelectTrigger className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="full_time">フル勤務</SelectItem>
+                <SelectItem value="dependent">扶養内</SelectItem>
+              </SelectContent>
+            </Select>
             <Button onClick={handleCreate}>
               <Plus className="mr-2 h-4 w-4" />
               登録
@@ -103,6 +117,7 @@ export default function StaffPage() {
                 <tr className="border-b">
                   <th className="py-2 px-3 text-left">ID</th>
                   <th className="py-2 px-3 text-left">氏名</th>
+                  <th className="py-2 px-3 text-left">属性</th>
                   <th className="py-2 px-3 text-left">担当可能な仕事種類</th>
                   <th className="py-2 px-3 text-right">操作</th>
                 </tr>
@@ -112,6 +127,14 @@ export default function StaffPage() {
                   <tr key={emp.id} className="border-b hover:bg-muted/50">
                     <td className="py-2 px-3">{emp.id}</td>
                     <td className="py-2 px-3 font-medium">{emp.name}</td>
+                    <td className="py-2 px-3">
+                      <Badge
+                        variant="outline"
+                        className={emp.employment_type === "dependent" ? "border-green-500 text-green-700" : "border-blue-500 text-blue-700"}
+                      >
+                        {emp.employment_type === "dependent" ? "扶養内" : "フル勤務"}
+                      </Badge>
+                    </td>
                     <td className="py-2 px-3">
                       <div className="flex flex-wrap gap-1">
                         {emp.job_types.length > 0 ? (
@@ -143,7 +166,7 @@ export default function StaffPage() {
                 ))}
                 {employees.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="py-8 text-center text-muted-foreground">
+                    <td colSpan={5} className="py-8 text-center text-muted-foreground">
                       スタッフが登録されていません
                     </td>
                   </tr>
@@ -167,6 +190,18 @@ export default function StaffPage() {
                 onChange={(e) => setEditName(e.target.value)}
                 className="mt-1"
               />
+            </div>
+            <div>
+              <Label>属性</Label>
+              <Select value={editEmploymentType} onValueChange={setEditEmploymentType}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="full_time">フル勤務</SelectItem>
+                  <SelectItem value="dependent">扶養内</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>担当可能な仕事種類</Label>

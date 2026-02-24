@@ -10,6 +10,7 @@ def _employee_to_out(emp: Employee) -> EmployeeOut:
     return EmployeeOut(
         id=emp.id,
         name=emp.name,
+        employment_type=emp.employment_type or "full_time",
         job_types=[
             JobTypeOut(id=ejt.job_type.id, name=ejt.job_type.name, color=ejt.job_type.color)
             for ejt in emp.job_types
@@ -25,7 +26,7 @@ def list_employees(db: Session = Depends(get_db)):
 
 @router.post("", response_model=EmployeeOut, status_code=201)
 def create_employee(body: EmployeeCreate, db: Session = Depends(get_db)):
-    emp = Employee(name=body.name)
+    emp = Employee(name=body.name, employment_type=body.employment_type)
     db.add(emp)
     db.commit()
     db.refresh(emp)
@@ -38,6 +39,7 @@ def update_employee(employee_id: int, body: EmployeeUpdate, db: Session = Depend
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
     emp.name = body.name
+    emp.employment_type = body.employment_type
     db.commit()
     db.refresh(emp)
     return _employee_to_out(emp)

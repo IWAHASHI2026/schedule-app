@@ -38,6 +38,7 @@ class Employee(Base):
     __tablename__ = "employees"
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(Text, nullable=False)
+    employment_type = Column(Text, nullable=False, default="full_time")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -68,8 +69,7 @@ class ShiftRequest(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
     target_month = Column(Text, nullable=False)
-    requested_work_days = Column(Integer)
-    requested_days_off = Column(Integer)
+    requested_work_days = Column(Text)  # "1"-"23" or "max"
     note = Column(Text)
 
     employee = relationship("Employee", back_populates="shift_requests")
@@ -81,6 +81,7 @@ class RequestDetail(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     shift_request_id = Column(Integer, ForeignKey("shift_requests.id", ondelete="CASCADE"), nullable=False)
     date = Column(Date, nullable=False)
+    period = Column(Text, nullable=False, default="all_day")  # "am", "pm", or "all_day"
 
     shift_request = relationship("ShiftRequest", back_populates="details")
 
@@ -134,9 +135,61 @@ class NlpModificationLog(Base):
     schedule = relationship("Schedule", back_populates="nlp_logs")
 
 
+def _migrate_add_period_column():
+    """Add period column to request_details if it doesn't exist."""
+    import sqlite3
+    db_path = DATABASE_URL.replace("sqlite:///", "")
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(request_details)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "period" not in columns:
+            cursor.execute("ALTER TABLE request_details ADD COLUMN period TEXT NOT NULL DEFAULT 'all_day'")
+            conn.commit()
+        conn.close()
+    except Exception:
+        pass  # Table may not exist yet
+
+
+def _migrate_add_employment_type():
+    """Add employment_type column to employees if it doesn't exist."""
+    import sqlite3
+    db_path = DATABASE_URL.replace("sqlite:///", "")
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(employees)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "employment_type" not in columns:
+            cursor.execute("ALTER TABLE employees ADD COLUMN employment_type TEXT NOT NULL DEFAULT 'full_time'")
+            conn.commit()
+        conn.close()
+    except Exception:
+        pass  # Table may not exist yet
+
+
+def _migrate_work_days_to_text():
+    """Convert requested_work_days from integer to text in shift_requests."""
+    import sqlite3
+    db_path = DATABASE_URL.replace("sqlite:///", "")
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        # Cast any existing integer values to text
+        cursor.execute("UPDATE shift_requests SET requested_work_days = CAST(requested_work_days AS TEXT) WHERE requested_work_days IS NOT NULL AND typeof(requested_work_days) != 'text'")
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # Table may not exist yet
+
+
 def init_db():
     """Create tables and seed initial data."""
     Base.metadata.create_all(bind=engine)
+    _migrate_add_period_column()
+    _migrate_add_employment_type()
+    _migrate_work_days_to_text()
     db = SessionLocal()
     try:
         if db.query(JobType).count() == 0:
