@@ -136,20 +136,24 @@ def generate_schedule(
                 if j not in allowed:
                     model.add(x[e_id, d, j] == 0)
 
-    # HC-03: Meet daily requirements (using integer scaling: multiply by 2 for 0.5 support)
+    # HC-03: Meet daily requirements (soft constraint with high penalty)
+    # Using integer scaling: multiply by 2 for 0.5 support
     violations = []
+    shortage_vars = []  # Track shortages for objective penalty
     for d in working_dates:
         if d not in daily_reqs:
             continue
         for j, req_count in daily_reqs[d].items():
-            # Scale: req_count * 2 must be met by sum of x * 2 (full day = 2 half-units)
             scaled_req = int(req_count * 2)
             supply = sum(
                 x[e_id, d, j] * 2
                 for e_id in emp_ids
                 if j in emp_job_types.get(e_id, [])
             )
-            model.add(supply >= scaled_req)
+            # Soft constraint: allow shortage but penalize heavily
+            shortage = model.new_int_var(0, scaled_req, f"shortage_{d}_{j}")
+            model.add(supply + shortage >= scaled_req)
+            shortage_vars.append(shortage)
 
     # Apply extra constraints from NLP modifications
     if extra_constraints:
@@ -220,6 +224,10 @@ def generate_schedule(
         for d in working_dates:
             for j in all_job_type_ids:
                 objective_terms.append(x[e_id, d, j] * j * priority_weight)
+
+    # Penalty for requirement shortages (very high weight to prioritize meeting requirements)
+    for sv in shortage_vars:
+        objective_terms.append(sv * 100)
 
     if objective_terms:
         model.minimize(sum(objective_terms))
