@@ -148,5 +148,24 @@ def init_db():
             ]
             db.add_all(seed_job_types)
             db.commit()
+
+        if db.query(Employee).count() == 0:
+            seed_employees = [
+                Employee(name="部長"),
+                Employee(name="若生亜紀子"),
+                Employee(name="和平映美"),
+                Employee(name="岡崎智恵子"),
+                Employee(name="川上朋子"),
+                Employee(name="植原ふみ代"),
+                Employee(name="尾崎廣子"),
+                Employee(name="酒向邦江"),
+                Employee(name="カンサ萌"),
+                Employee(name="秋山智子"),
+                Employee(name="石原圭子"),
+                Employee(name="工藤友里"),
+                Employee(name="近藤美佐子"),
+            ]
+            db.add_all(seed_employees)
+            db.commit()
     finally:
         db.close()
