@@ -141,7 +141,7 @@ export default function RequirementsPage() {
                         <Input
                           type="number"
                           min={0}
-                          step={0.5}
+                          step={1}
                           className="w-20 h-8 text-center text-sm"
                           value={templateValues[`${dow}_${jt.id}`] || ""}
                           onChange={(e) =>
@@ -207,7 +207,7 @@ export default function RequirementsPage() {
                           <Input
                             type="number"
                             min={0}
-                            step={0.5}
+                            step={1}
                             className="w-20 h-8 text-center text-sm"
                             value={values[`${dateStr}_${jt.id}`] || ""}
                             onChange={(e) => setValue(dateStr, jt.id, e.target.value)}
