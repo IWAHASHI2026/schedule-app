@@ -4,9 +4,10 @@ Shift scheduling optimizer using Google OR-Tools CP-SAT solver.
 Hard constraints:
   HC-01: Requested days off are always respected
   HC-02: One job type per employee per day
-  HC-03: Daily required headcount per job type must be met
+  HC-03: Daily required headcount per job type must be met (soft for データ/その他)
   HC-04: Only assign job types the employee is qualified for
   HC-05: No work on weekends/holidays
+  HC-06: 職人・サブ職人 are each assigned exactly 1 person per working day
 
 Soft constraints (objective function):
   SC-01: Minimize deviation from requested work days (weight 10)
@@ -136,6 +137,18 @@ def generate_schedule(
                 if j not in allowed:
                     model.add(x[e_id, d, j] == 0)
 
+    # HC-06: 職人・サブ職人は各営業日に必ず1名ずつ配置（ハード制約）
+    from database import JobType
+    hard_one_jt_ids = set()
+    for jt in db.query(JobType).filter(JobType.name.in_(["職人", "サブ職人"])).all():
+        hard_one_jt_ids.add(jt.id)
+    for d in working_dates:
+        for j in hard_one_jt_ids:
+            if j in all_job_type_ids:
+                model.add(
+                    sum(x[e_id, d, j] for e_id in emp_ids if j in emp_job_types.get(e_id, [])) == 1
+                )
+
     # HC-03: Meet daily requirements (soft constraint with high penalty)
     # Using integer scaling: multiply by 2 for 0.5 support
     violations = []
@@ -144,6 +157,8 @@ def generate_schedule(
         if d not in daily_reqs:
             continue
         for j, req_count in daily_reqs[d].items():
+            if j in hard_one_jt_ids:
+                continue  # Already enforced as hard constraint above
             scaled_req = int(req_count * 2)
             supply = sum(
                 x[e_id, d, j] * 2

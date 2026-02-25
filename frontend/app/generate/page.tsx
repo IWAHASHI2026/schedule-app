@@ -278,6 +278,34 @@ export default function GeneratePage() {
                       })}
                     </tr>
                   ))}
+                  {/* 職種別人数 */}
+                  {jobTypes.map((jt) => (
+                    <tr key={`summary-${jt.id}`} className="bg-muted/30">
+                      <td className="sticky left-0 bg-muted/30 z-10 px-2 py-1 border text-[10px] font-medium" style={{ color: jt.color || undefined }}>
+                        {jt.name}
+                      </td>
+                      {allDates.map((d) => {
+                        const count = assignments.filter((a) => a.date === d && a.job_type_id === jt.id).reduce((s, a) => s + a.headcount_value, 0);
+                        return (
+                          <td key={d} className="px-1 py-1 border text-center text-[10px]">
+                            {count || ""}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  {/* 日合計 */}
+                  <tr className="bg-muted/60 font-bold">
+                    <td className="sticky left-0 bg-muted/60 z-10 px-2 py-1 border text-[10px]">合計</td>
+                    {allDates.map((d) => {
+                      const total = assignments.filter((a) => a.date === d && a.work_type !== "off").reduce((s, a) => s + a.headcount_value, 0);
+                      return (
+                        <td key={d} className="px-1 py-1 border text-center text-[10px]">
+                          {total || ""}
+                        </td>
+                      );
+                    })}
+                  </tr>
                 </tbody>
               </table>
             </div>
