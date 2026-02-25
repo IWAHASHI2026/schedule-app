@@ -175,11 +175,11 @@ function SharePageContent() {
                       {jt.name}
                     </td>
                     {allDates.map((d) => (
-                      <td key={d} className="px-1 py-1 border text-center text-[10px]">
+                      <td key={d} className="px-1 py-1 border text-center text-[10px] bg-muted/30">
                         {getSummary(d, jt.id) || ""}
                       </td>
                     ))}
-                    <td className="px-1 py-1 border" />
+                    <td className="px-1 py-1 border bg-muted/30" />
                   </tr>
                 ))}
                 <tr className="bg-muted/60 font-bold">
@@ -188,12 +188,12 @@ function SharePageContent() {
                     const dow = new Date(d).getDay();
                     const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
                     return (
-                      <td key={d} className="px-1 py-1 border text-center text-[10px]">
+                      <td key={d} className="px-1 py-1 border text-center text-[10px] bg-muted/60">
                         {isNW ? "" : getDailyTotal(d) || ""}
                       </td>
                     );
                   })}
-                  <td className="px-1 py-1 border" />
+                  <td className="px-1 py-1 border bg-muted/60" />
                 </tr>
               </tbody>
             </table>

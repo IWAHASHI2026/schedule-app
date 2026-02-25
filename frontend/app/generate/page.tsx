@@ -318,7 +318,7 @@ export default function GeneratePage() {
                       {allDates.map((d) => {
                         const count = assignments.filter((a) => a.date === d && a.job_type_id === jt.id).reduce((s, a) => s + a.headcount_value, 0);
                         return (
-                          <td key={d} className="px-1 py-1 border text-center text-[10px]">
+                          <td key={d} className="px-1 py-1 border text-center text-[10px] bg-muted/30">
                             {count || ""}
                           </td>
                         );
@@ -331,7 +331,7 @@ export default function GeneratePage() {
                     {allDates.map((d) => {
                       const total = assignments.filter((a) => a.date === d && a.work_type !== "off").reduce((s, a) => s + a.headcount_value, 0);
                       return (
-                        <td key={d} className="px-1 py-1 border text-center text-[10px]">
+                        <td key={d} className="px-1 py-1 border text-center text-[10px] bg-muted/60">
                           {total || ""}
                         </td>
                       );
