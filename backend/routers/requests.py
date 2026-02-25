@@ -31,7 +31,7 @@ def list_requests(month: str, db: Session = Depends(get_db)):
 
 @router.get("/status", response_model=list[RequestStatusOut])
 def request_status(month: str, db: Session = Depends(get_db)):
-    employees = db.query(Employee).order_by(Employee.id).all()
+    employees = db.query(Employee).order_by(Employee.sort_order).all()
     result = []
     for emp in employees:
         has = (

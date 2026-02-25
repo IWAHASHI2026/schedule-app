@@ -22,10 +22,19 @@ class EmployeeOut(BaseModel):
     id: int
     name: str
     employment_type: str = "full_time"
+    sort_order: int = 0
     job_types: list[JobTypeOut] = []
 
 class EmployeeJobTypesUpdate(BaseModel):
     job_type_ids: list[int]
+
+class EmployeeFullUpdate(BaseModel):
+    name: str
+    employment_type: str = "full_time"
+    job_type_ids: list[int] = []
+
+class EmployeeReorder(BaseModel):
+    employee_ids: list[int]
 
 
 # ---- Shift Requests ----

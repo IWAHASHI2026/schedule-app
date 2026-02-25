@@ -34,7 +34,7 @@ def _get_schedule_data(db: Session, month: str):
     if not schedule:
         raise ValueError("No schedule found for the specified month")
 
-    employees = db.query(Employee).order_by(Employee.id).all()
+    employees = db.query(Employee).order_by(Employee.sort_order).all()
     job_types = db.query(JobType).all()
     jt_map = {jt.id: jt.name for jt in job_types}
 

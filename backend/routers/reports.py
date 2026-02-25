@@ -19,7 +19,7 @@ def get_report(month: str, db: Session = Depends(get_db)):
     if not schedule:
         return ReportOut(month=month)
 
-    employees = db.query(Employee).order_by(Employee.id).all()
+    employees = db.query(Employee).order_by(Employee.sort_order).all()
     job_types = db.query(JobType).all()
     jt_map = {jt.id: jt.name for jt in job_types}
 

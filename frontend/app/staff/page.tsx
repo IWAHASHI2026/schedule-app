@@ -9,10 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import {
   getEmployees, createEmployee, updateEmployee, deleteEmployee,
-  updateEmployeeJobTypes, getJobTypes,
+  updateEmployeeFull, reorderEmployees, getJobTypes,
   type Employee, type JobType,
 } from "@/lib/api";
 
@@ -59,17 +59,33 @@ export default function StaffPage() {
 
   const handleSaveEdit = async () => {
     if (editingId === null) return;
-    await updateEmployee(editingId, editName, editEmploymentType);
-    await updateEmployeeJobTypes(editingId, editJobTypes);
-    setDialogOpen(false);
-    setEditingId(null);
-    load();
+    try {
+      await updateEmployeeFull(editingId, editName, editEmploymentType, editJobTypes);
+      setDialogOpen(false);
+      setEditingId(null);
+      await load();
+    } catch (e) {
+      alert("保存に失敗しました。もう一度お試しください。");
+    }
   };
 
   const toggleJobType = (jtId: number) => {
     setEditJobTypes((prev) =>
       prev.includes(jtId) ? prev.filter((id) => id !== jtId) : [...prev, jtId]
     );
+  };
+
+  const handleMove = async (index: number, direction: "up" | "down") => {
+    const newIndex = direction === "up" ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= employees.length) return;
+    const reordered = [...employees];
+    [reordered[index], reordered[newIndex]] = [reordered[newIndex], reordered[index]];
+    setEmployees(reordered);
+    try {
+      await reorderEmployees(reordered.map((e) => e.id));
+    } catch {
+      await load();
+    }
   };
 
   return (
@@ -115,7 +131,7 @@ export default function StaffPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="py-2 px-3 text-left">ID</th>
+                  <th className="py-2 px-3 text-center w-16">順番</th>
                   <th className="py-2 px-3 text-left">氏名</th>
                   <th className="py-2 px-3 text-left">属性</th>
                   <th className="py-2 px-3 text-left">担当可能な仕事種類</th>
@@ -123,9 +139,30 @@ export default function StaffPage() {
                 </tr>
               </thead>
               <tbody>
-                {employees.map((emp) => (
+                {employees.map((emp, idx) => (
                   <tr key={emp.id} className="border-b hover:bg-muted/50">
-                    <td className="py-2 px-3">{emp.id}</td>
+                    <td className="py-2 px-3">
+                      <div className="flex items-center justify-center gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0"
+                          disabled={idx === 0}
+                          onClick={() => handleMove(idx, "up")}
+                        >
+                          <ArrowUp className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0"
+                          disabled={idx === employees.length - 1}
+                          onClick={() => handleMove(idx, "down")}
+                        >
+                          <ArrowDown className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </td>
                     <td className="py-2 px-3 font-medium">{emp.name}</td>
                     <td className="py-2 px-3">
                       <Badge

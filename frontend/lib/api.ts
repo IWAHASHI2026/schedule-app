@@ -24,6 +24,7 @@ export interface Employee {
   id: number;
   name: string;
   employment_type: string;  // "full_time" or "dependent"
+  sort_order: number;
   job_types: JobType[];
 }
 
@@ -38,6 +39,16 @@ export const updateEmployeeJobTypes = (id: number, job_type_ids: number[]) =>
   request<Employee>(`/employees/${id}/job-types`, {
     method: "PUT",
     body: JSON.stringify({ job_type_ids }),
+  });
+export const updateEmployeeFull = (id: number, name: string, employment_type: string, job_type_ids: number[]) =>
+  request<Employee>(`/employees/${id}/full`, {
+    method: "PUT",
+    body: JSON.stringify({ name, employment_type, job_type_ids }),
+  });
+export const reorderEmployees = (employee_ids: number[]) =>
+  request<Employee[]>("/employees/reorder", {
+    method: "PUT",
+    body: JSON.stringify({ employee_ids }),
   });
 
 // ---- Job Types ----

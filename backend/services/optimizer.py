@@ -43,7 +43,7 @@ def generate_schedule(
     working_dates = [d for d in all_dates if not is_non_working_day(d)]
 
     # Load data
-    employees = db.query(Employee).order_by(Employee.id).all()
+    employees = db.query(Employee).order_by(Employee.sort_order).all()
     if not employees:
         raise ValueError("No employees registered")
 

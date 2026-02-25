@@ -42,6 +42,7 @@ class Employee(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(Text, nullable=False)
     employment_type = Column(Text, nullable=False, default="full_time")
+    sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -187,12 +188,35 @@ def _migrate_work_days_to_text():
         pass  # Table may not exist yet
 
 
+def _migrate_add_sort_order():
+    """Add sort_order column to employees if it doesn't exist."""
+    import sqlite3
+    db_path = DATABASE_URL.replace("sqlite:///", "")
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(employees)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "sort_order" not in columns:
+            cursor.execute("ALTER TABLE employees ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+            # Assign sort_order based on existing id order
+            cursor.execute("SELECT id FROM employees ORDER BY id")
+            rows = cursor.fetchall()
+            for idx, (emp_id,) in enumerate(rows):
+                cursor.execute("UPDATE employees SET sort_order = ? WHERE id = ?", (idx, emp_id))
+            conn.commit()
+        conn.close()
+    except Exception:
+        pass  # Table may not exist yet
+
+
 def init_db():
     """Create tables and seed initial data."""
     Base.metadata.create_all(bind=engine)
     _migrate_add_period_column()
     _migrate_add_employment_type()
     _migrate_work_days_to_text()
+    _migrate_add_sort_order()
     db = SessionLocal()
     try:
         if db.query(JobType).count() == 0:
@@ -206,22 +230,31 @@ def init_db():
             db.commit()
 
         if db.query(Employee).count() == 0:
-            seed_employees = [
-                Employee(name="部長"),
-                Employee(name="若生亜紀子"),
-                Employee(name="和平映美"),
-                Employee(name="岡崎智恵子"),
-                Employee(name="川上朋子"),
-                Employee(name="植原ふみ代"),
-                Employee(name="尾崎廣子"),
-                Employee(name="酒向邦江"),
-                Employee(name="カンサ萌"),
-                Employee(name="秋山智子"),
-                Employee(name="石原圭子"),
-                Employee(name="工藤友里"),
-                Employee(name="近藤美佐子"),
+            # name, employment_type, job_type_names
+            seed_data = [
+                ("部長",       "full_time", ["その他"]),
+                ("若生亜紀子", "full_time", ["その他"]),
+                ("和平映美",   "full_time", ["職人", "サブ職人", "データ", "その他"]),
+                ("岡崎智恵子", "full_time", ["職人"]),
+                ("川上朋子",   "dependent", ["データ", "その他"]),
+                ("植原ふみ代", "full_time", ["職人", "サブ職人", "データ", "その他"]),
+                ("尾崎廣子",   "dependent", ["データ", "その他"]),
+                ("酒向邦江",   "dependent", ["データ", "その他"]),
+                ("カンサ萌",   "dependent", ["データ", "その他"]),
+                ("秋山智子",   "dependent", ["その他"]),
+                ("石原圭子",   "full_time", ["データ", "その他"]),
+                ("工藤友里",   "full_time", ["データ", "その他"]),
+                ("近藤美佐子", "full_time", ["データ", "その他"]),
+                ("大野千絵美", "full_time", ["職人", "サブ職人", "データ", "その他"]),
             ]
-            db.add_all(seed_employees)
+            jt_map = {jt.name: jt.id for jt in db.query(JobType).all()}
+            for idx, (name, emp_type, jt_names) in enumerate(seed_data):
+                emp = Employee(name=name, employment_type=emp_type, sort_order=idx)
+                db.add(emp)
+                db.flush()
+                for jt_name in jt_names:
+                    if jt_name in jt_map:
+                        db.add(EmployeeJobType(employee_id=emp.id, job_type_id=jt_map[jt_name]))
             db.commit()
     finally:
         db.close()
