@@ -1,7 +1,7 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import init_db
+from database import init_db, cleanup_old_schedules
 from routers import employees, job_types, requests, requirements, schedules, nlp_modify, reports, export, holidays
 
 app = FastAPI(title="Shift Scheduler API", version="1.0.0")
@@ -46,6 +46,7 @@ app.include_router(holidays.router)
 @app.on_event("startup")
 def on_startup():
     init_db()
+    cleanup_old_schedules()
 
 
 @app.get("/api/health")

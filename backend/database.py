@@ -3,11 +3,14 @@ from sqlalchemy import (
     event
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
-from datetime import datetime
+from datetime import datetime, date
+import logging
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./shift_scheduler.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -222,3 +225,80 @@ def init_db():
             db.commit()
     finally:
         db.close()
+
+
+def cleanup_old_schedules(db: Session | None = None) -> int:
+    """13ヶ月より古いスケジュールと関連データを削除する。
+
+    カスケード削除により ShiftAssignment, NlpModificationLog,
+    RequestDetail も自動的に削除される。
+    """
+    close_after = False
+    if db is None:
+        db = SessionLocal()
+        close_after = True
+
+    try:
+        today = date.today()
+        cutoff_month = today.month - 13
+        cutoff_year = today.year
+        while cutoff_month <= 0:
+            cutoff_month += 12
+            cutoff_year -= 1
+        cutoff_str = f"{cutoff_year:04d}-{cutoff_month:02d}"
+
+        # 古いスケジュールを削除（ShiftAssignment, NlpModificationLog はカスケード削除）
+        old_schedules = (
+            db.query(Schedule)
+            .filter(Schedule.target_month < cutoff_str)
+            .all()
+        )
+        schedule_count = len(old_schedules)
+        if schedule_count > 0:
+            deleted_months = sorted(set(s.target_month for s in old_schedules))
+            for schedule in old_schedules:
+                db.delete(schedule)
+            logger.info(
+                "保管期限クリーンアップ: %d件のスケジュールを削除 (対象月: %s)",
+                schedule_count, ", ".join(deleted_months),
+            )
+
+        # 古いシフト希望を削除（RequestDetail はカスケード削除）
+        old_requests = (
+            db.query(ShiftRequest)
+            .filter(ShiftRequest.target_month < cutoff_str)
+            .all()
+        )
+        request_count = len(old_requests)
+        if request_count > 0:
+            for req in old_requests:
+                db.delete(req)
+            logger.info(
+                "保管期限クリーンアップ: %d件のシフト希望を削除", request_count,
+            )
+
+        # 古い日別必要人数を削除
+        cutoff_date = date(cutoff_year, cutoff_month, 1)
+        req_count = (
+            db.query(DailyRequirement)
+            .filter(DailyRequirement.date < cutoff_date)
+            .delete()
+        )
+        if req_count > 0:
+            logger.info(
+                "保管期限クリーンアップ: %d件の日別必要人数を削除", req_count,
+            )
+
+        if schedule_count > 0 or request_count > 0 or req_count > 0:
+            db.commit()
+        else:
+            logger.debug("保管期限クリーンアップ: 削除対象なし (カットオフ: %s)", cutoff_str)
+
+        return schedule_count + request_count + req_count
+    except Exception:
+        db.rollback()
+        logger.exception("保管期限クリーンアップに失敗しました")
+        raise
+    finally:
+        if close_after:
+            db.close()

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from database import get_db, Schedule, ShiftAssignment, Employee, JobType
+from database import get_db, Schedule, ShiftAssignment, Employee, JobType, cleanup_old_schedules
 from models import (
     ScheduleOut, ShiftAssignmentOut, ShiftAssignmentUpdate,
     ScheduleGenerate, StatusUpdate,
@@ -48,6 +48,13 @@ def list_schedules(month: str | None = None, db: Session = Depends(get_db)):
 def generate(body: ScheduleGenerate, db: Session = Depends(get_db)):
     try:
         schedule_id, assignments, violations = generate_schedule(db, body.month)
+
+        # 13ヶ月より古いデータを削除（失敗してもスケジュール生成には影響しない）
+        try:
+            cleanup_old_schedules(db)
+        except Exception:
+            pass
+
         return {
             "schedule_id": schedule_id,
             "assignment_count": len(assignments),
