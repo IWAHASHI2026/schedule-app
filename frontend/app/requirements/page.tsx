@@ -59,6 +59,29 @@ export default function RequirementsPage() {
       setTemplateInitialized(true);
     }
 
+    // データが未登録の月はデフォルトテンプレートを自動適用して保存
+    if (reqs.length === 0 && jts.length > 0) {
+      const weekdayReqs: Record<number, { job_type_id: number; required_count: number }[]> = {};
+      for (const jt of jts) {
+        const jtDefaults = defaultTemplate[jt.name];
+        if (!jtDefaults) continue;
+        for (const [dowStr, count] of Object.entries(jtDefaults)) {
+          const pyDow = parseInt(dowStr) - 1; // JS dow (1=Mon) → Python weekday (0=Mon)
+          if (!weekdayReqs[pyDow]) weekdayReqs[pyDow] = [];
+          weekdayReqs[pyDow].push({ job_type_id: jt.id, required_count: count });
+        }
+      }
+      await applyTemplate({ month, weekday_requirements: weekdayReqs });
+      const newReqs = await getRequirements(month);
+      setRequirements(newReqs);
+      const vals: Record<string, number> = {};
+      for (const r of newReqs) {
+        vals[`${r.date}_${r.job_type_id}`] = r.required_count;
+      }
+      setValues(vals);
+      return;
+    }
+
     const vals: Record<string, number> = {};
     for (const r of reqs) {
       vals[`${r.date}_${r.job_type_id}`] = r.required_count;
