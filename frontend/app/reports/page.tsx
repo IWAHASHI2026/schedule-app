@@ -22,6 +22,16 @@ export default function ReportsPage() {
 
   const maxWork = report ? Math.max(...report.employees.map((e) => e.total_work_days), 1) : 1;
 
+  // 全従業員から職種名を集約（順序を保持）
+  const allJobTypes: string[] = [];
+  if (report) {
+    for (const emp of report.employees) {
+      for (const jt of Object.keys(emp.job_type_counts)) {
+        if (!allJobTypes.includes(jt)) allJobTypes.push(jt);
+      }
+    }
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">集計・レポート</h1>
@@ -45,9 +55,9 @@ export default function ReportsPage() {
                       <th className="py-2 px-3 text-left">スタッフ</th>
                       <th className="py-2 px-3 text-center">出勤日数</th>
                       <th className="py-2 px-3 text-center">休日数</th>
-                      <th className="py-2 px-3 text-center">希望出勤</th>
-                      {Object.keys(report.employees[0]?.job_type_counts || {}).map((jt) => (
-                        <th key={jt} className="py-2 px-3 text-center">{jt}</th>
+                      <th className="py-2 px-3 text-center border-r-2 border-gray-300">希望出勤</th>
+                      {allJobTypes.map((jt) => (
+                        <th key={jt} className="py-2 px-3 text-center bg-muted/40">{jt}</th>
                       ))}
                     </tr>
                   </thead>
@@ -57,9 +67,9 @@ export default function ReportsPage() {
                         <td className="py-2 px-3 font-medium">{emp.employee_name}</td>
                         <td className="py-2 px-3 text-center">{emp.total_work_days}</td>
                         <td className="py-2 px-3 text-center">{emp.total_days_off}</td>
-                        <td className="py-2 px-3 text-center">{emp.requested_work_days === "max" ? "なるべく多く" : emp.requested_work_days ?? "-"}</td>
-                        {Object.entries(emp.job_type_counts).map(([jt, count]) => (
-                          <td key={jt} className="py-2 px-3 text-center">{count}</td>
+                        <td className="py-2 px-3 text-center border-r-2 border-gray-300">{emp.requested_work_days === "max" ? "なるべく多く" : emp.requested_work_days ?? "-"}</td>
+                        {allJobTypes.map((jt) => (
+                          <td key={jt} className="py-2 px-3 text-center bg-muted/40">{emp.job_type_counts[jt] || ""}</td>
                         ))}
                       </tr>
                     ))}
