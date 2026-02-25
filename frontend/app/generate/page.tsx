@@ -10,8 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Wand2, RefreshCw, Check, X, AlertTriangle, Loader2 } from "lucide-react";
 import {
   getEmployees, getRequestStatus, getRequirements, getJobTypes,
-  getSchedules, generateSchedule, getAssignments, nlpModify, approveNlpLog, rejectNlpLog,
-  type Employee, type JobType, type ShiftAssignment, type NlpModifyResult,
+  getSchedules, generateSchedule, getAssignments, getRequests, nlpModify, approveNlpLog, rejectNlpLog,
+  type Employee, type JobType, type ShiftAssignment, type ShiftRequest, type NlpModifyResult,
 } from "@/lib/api";
 
 export default function GeneratePage() {
@@ -30,19 +30,32 @@ export default function GeneratePage() {
   const [nlpResult, setNlpResult] = useState<NlpModifyResult | null>(null);
   const [nlpLoading, setNlpLoading] = useState(false);
   const [error, setError] = useState("");
+  const [requestedDaysOff, setRequestedDaysOff] = useState<Record<number, Set<string>>>({}); // empId -> Set<date>
 
   const load = async () => {
-    const [emps, jts, statuses, reqs, schedules] = await Promise.all([
+    const [emps, jts, statuses, reqs, schedules, shiftRequests] = await Promise.all([
       getEmployees(),
       getJobTypes(),
       getRequestStatus(month),
       getRequirements(month),
       getSchedules(month),
+      getRequests(month),
     ]);
     setEmployees(emps);
     setJobTypes(jts);
     setReqStatusCount({ total: statuses.length, done: statuses.filter((s) => s.has_request).length });
     setReqDaysCount(new Set(reqs.map((r) => r.date)).size);
+
+    // 希望休の日付をマッピング
+    const daysOffMap: Record<number, Set<string>> = {};
+    for (const sr of shiftRequests) {
+      const dates = new Set<string>();
+      for (const d of sr.details) {
+        dates.add(d.date);
+      }
+      daysOffMap[sr.employee_id] = dates;
+    }
+    setRequestedDaysOff(daysOffMap);
 
     if (schedules.length > 0) {
       const latest = schedules[0];
@@ -254,6 +267,10 @@ export default function GeneratePage() {
                         const isChanged = nlpResult?.changes.some(
                           (c) => c.employee_id === emp.id && c.date === d
                         );
+                        const dow = new Date(d).getDay();
+                        const isWeekend = dow === 0 || dow === 6;
+                        const isOff = a?.work_type === "off";
+                        const isRequested = requestedDaysOff[emp.id]?.has(d);
                         return (
                           <td
                             key={d}
@@ -261,13 +278,21 @@ export default function GeneratePage() {
                               isChanged ? "ring-2 ring-yellow-400" : ""
                             }`}
                             style={
-                              a?.job_type_color
+                              a?.job_type_color && !isOff
                                 ? { backgroundColor: a.job_type_color + "40" }
-                                : {}
+                                : isOff && !isWeekend && isRequested
+                                  ? { backgroundColor: "#DBEAFE" }
+                                  : isOff && !isWeekend && !isRequested
+                                    ? { backgroundColor: "#FEF3C7" }
+                                    : {}
                             }
                           >
-                            {a?.work_type === "off" ? (
-                              <span className="text-gray-400">休</span>
+                            {isOff ? (
+                              isWeekend ? null : (
+                                <span className={isRequested ? "text-blue-600 font-bold text-[10px]" : "text-amber-600 text-[10px]"}>
+                                  {isRequested ? "希休" : "調休"}
+                                </span>
+                              )
                             ) : (
                               <span className="text-[10px]">
                                 {a?.job_type_name?.charAt(0) || ""}
