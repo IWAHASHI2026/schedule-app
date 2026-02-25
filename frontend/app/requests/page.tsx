@@ -41,6 +41,30 @@ export default function RequestsPage() {
 
   useEffect(() => { load(); }, [month]);
 
+  // デフォルト希望出勤日数（従業員名 → 値）
+  const defaultWorkDaysMap: Record<string, string> = {
+    "部長": "max",
+    "若生亜紀子": "max",
+    "大野千絵美": "16",
+    "和平映美": "max",
+    "岡崎智恵子": "16",
+    "川上朋子": "12",
+    "植原ふみ代": "16",
+    "尾崎廣子": "12",
+    "酒向邦江": "12",
+    "カンサ萌": "12",
+    "秋山智子": "12",
+    "石原圭子": "16",
+    "工藤友里": "max",
+    "近藤美佐子": "max",
+  };
+
+  const getDefaultWorkDays = (empId: string): string => {
+    const emp = employees.find((e) => e.id.toString() === empId);
+    if (!emp) return "";
+    return defaultWorkDaysMap[emp.name] ?? "";
+  };
+
   const loadEmployeeRequest = async (empId: string) => {
     setSelectedEmpId(empId);
     setSelectedDaysOff(new Set());
@@ -60,10 +84,11 @@ export default function RequestsPage() {
         }
       }
       setSelectedDaysOff(keys);
-      setWorkDays(req.requested_work_days || "");
+      setWorkDays(req.requested_work_days || getDefaultWorkDays(empId));
       setNote(req.note || "");
     } catch {
-      // No existing request
+      // No existing request — apply default
+      setWorkDays(getDefaultWorkDays(empId));
     }
   };
 
