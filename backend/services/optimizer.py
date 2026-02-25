@@ -377,6 +377,8 @@ def generate_schedule(
     db.commit()
 
     # Check for violations (account for half-day headcount)
+    dow_names = ["月", "火", "水", "木", "金", "土", "日"]
+    jt_name_map = {jt.id: jt.name for jt in db.query(JobType).all()}
     for d in working_dates:
         if d not in daily_reqs:
             continue
@@ -387,8 +389,13 @@ def generate_schedule(
                 if solver.value(x.get((e_id, d, j), model.new_constant(0))) == 1
             )
             if actual < req_count:
+                jt_name = jt_name_map.get(j, f"職種{j}")
+                shortage = req_count - actual
+                dow = dow_names[d.weekday()]
+                actual_str = int(actual) if actual == int(actual) else actual
+                req_str = int(req_count) if req_count == int(req_count) else req_count
                 violations.append(
-                    f"{d.isoformat()} - job_type {j}: needed {req_count}, got {actual}"
+                    f"{d.month}月{d.day}日（{dow}）: {jt_name}が{shortage:g}名不足（必要{req_str}名、配置{actual_str}名）"
                 )
 
     return schedule.id, assignments, violations
