@@ -20,7 +20,18 @@ export default function RequirementsPage() {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [values, setValues] = useState<Record<string, number>>({});
   const [templateValues, setTemplateValues] = useState<Record<string, number>>({});
+  const [templateInitialized, setTemplateInitialized] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // デフォルトテンプレート値（曜日別 × 職種名）
+  const defaultTemplate: Record<string, Record<number, number>> = {
+    // dow: 1=月, 2=火, 3=水, 4=木, 5=金
+    "職人":     { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 },
+    "サブ職人": { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 },
+    "データ":   { 1: 3, 2: 3, 3: 3, 4: 3, 5: 3 },
+    "その他":   { 1: 7, 2: 5, 3: 5, 4: 5, 5: 5 },
+  };
+
   const load = async () => {
     const [jts, reqs, hols] = await Promise.all([
       getJobTypes(),
@@ -30,6 +41,23 @@ export default function RequirementsPage() {
     setJobTypes(jts);
     setRequirements(reqs);
     setHolidays(hols);
+
+    // テンプレートのデフォルト値を初期化（初回のみ）
+    if (!templateInitialized && jts.length > 0) {
+      const defaults: Record<string, number> = {};
+      for (const jt of jts) {
+        const jtDefaults = defaultTemplate[jt.name];
+        if (jtDefaults) {
+          for (const dow of [1, 2, 3, 4, 5]) {
+            if (jtDefaults[dow] !== undefined) {
+              defaults[`${dow}_${jt.id}`] = jtDefaults[dow];
+            }
+          }
+        }
+      }
+      setTemplateValues(defaults);
+      setTemplateInitialized(true);
+    }
 
     const vals: Record<string, number> = {};
     for (const r of reqs) {
