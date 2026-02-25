@@ -1,9 +1,10 @@
 import os
 import json
+from pathlib import Path
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 def parse_modification(input_text: str, current_summary: str) -> list[dict]:
@@ -13,7 +14,7 @@ def parse_modification(input_text: str, current_summary: str) -> list[dict]:
     """
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key or api_key == "your-api-key-here":
-        raise ValueError("ANTHROPIC_API_KEY is not configured")
+        raise ValueError("ANTHROPIC_API_KEY が設定されていません。backend/.env ファイルを確認してください。")
 
     client = Anthropic(api_key=api_key)
 
@@ -40,11 +41,19 @@ def parse_modification(input_text: str, current_summary: str) -> list[dict]:
 - amountがnullの場合、increase/decreaseは現在の値から±2として扱われます
 - JSON配列のみを出力してください。説明文は不要です。"""
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as e:
+        error_msg = str(e)
+        if "credit balance" in error_msg.lower():
+            raise ValueError("Anthropic APIのクレジット残高が不足しています。Plans & Billing でチャージしてください。")
+        elif "authentication" in error_msg.lower() or "invalid.*key" in error_msg.lower():
+            raise ValueError("Anthropic APIキーが無効です。backend/.env のキーを確認してください。")
+        raise
 
     response_text = message.content[0].text.strip()
 
