@@ -10,8 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Wand2, RefreshCw, Check, X, AlertTriangle, Loader2 } from "lucide-react";
 import {
   getEmployees, getRequestStatus, getRequirements, getJobTypes,
-  getSchedules, generateSchedule, getAssignments, getRequests, nlpModify, approveNlpLog, rejectNlpLog,
-  type Employee, type JobType, type ShiftAssignment, type ShiftRequest, type NlpModifyResult,
+  getSchedules, generateSchedule, getAssignments, getRequests, getHolidays, nlpModify, approveNlpLog, rejectNlpLog,
+  type Employee, type JobType, type ShiftAssignment, type ShiftRequest, type Holiday, type NlpModifyResult,
 } from "@/lib/api";
 
 export default function GeneratePage() {
@@ -31,16 +31,19 @@ export default function GeneratePage() {
   const [nlpLoading, setNlpLoading] = useState(false);
   const [error, setError] = useState("");
   const [requestedDaysOff, setRequestedDaysOff] = useState<Record<number, Set<string>>>({}); // empId -> Set<date>
+  const [holidayDates, setHolidayDates] = useState<Set<string>>(new Set());
 
   const load = async () => {
-    const [emps, jts, statuses, reqs, schedules, shiftRequests] = await Promise.all([
+    const [emps, jts, statuses, reqs, schedules, shiftRequests, holidays] = await Promise.all([
       getEmployees(),
       getJobTypes(),
       getRequestStatus(month),
       getRequirements(month),
       getSchedules(month),
       getRequests(month),
+      getHolidays(parseInt(month.split("-")[0])),
     ]);
+    setHolidayDates(new Set(holidays.map((h) => h.date)));
     setEmployees(emps);
     setJobTypes(jts);
     setReqStatusCount({ total: statuses.length, done: statuses.filter((s) => s.has_request).length });
@@ -232,17 +235,18 @@ export default function GeneratePage() {
                     {allDates.map((d) => {
                       const day = parseInt(d.split("-")[2]);
                       const dow = new Date(d).getDay();
+                      const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
                       return (
                         <th
                           key={d}
                           className={`px-1 py-1 border text-center min-w-[32px] ${
-                            dow === 0 || dow === 6 ? "bg-gray-100" : ""
+                            isNW ? "bg-gray-100" : ""
                           }`}
                         >
                           <div>{day}</div>
                           <div
                             className={`text-[10px] ${
-                              dow === 0
+                              dow === 0 || holidayDates.has(d)
                                 ? "text-red-500"
                                 : dow === 6
                                   ? "text-blue-500"
@@ -268,7 +272,7 @@ export default function GeneratePage() {
                           (c) => c.employee_id === emp.id && c.date === d
                         );
                         const dow = new Date(d).getDay();
-                        const isWeekend = dow === 0 || dow === 6;
+                        const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
                         const isOff = a?.work_type === "off";
                         const isRequested = requestedDaysOff[emp.id]?.has(d);
                         return (
@@ -280,16 +284,16 @@ export default function GeneratePage() {
                             style={
                               a?.job_type_color && !isOff
                                 ? { backgroundColor: a.job_type_color + "40" }
-                                : isOff && !isWeekend && isRequested
-                                  ? { backgroundColor: "#DBEAFE" }
-                                  : isOff && !isWeekend && !isRequested
-                                    ? { backgroundColor: "#FEF3C7" }
+                                : isOff && !isNW && isRequested
+                                  ? { backgroundColor: "#F3E8FF" }
+                                  : isOff && !isNW && !isRequested
+                                    ? { backgroundColor: "#F1F5F9" }
                                     : {}
                             }
                           >
                             {isOff ? (
-                              isWeekend ? null : (
-                                <span className={isRequested ? "text-blue-600 font-bold text-[10px]" : "text-amber-600 text-[10px]"}>
+                              isNW ? null : (
+                                <span className={isRequested ? "text-purple-600 font-bold text-[10px]" : "text-slate-500 text-[10px]"}>
                                   {isRequested ? "希休" : "調休"}
                                 </span>
                               )
