@@ -3,15 +3,19 @@ Shift scheduling optimizer using Google OR-Tools CP-SAT solver.
 
 Hard constraints:
   HC-01: Requested days off are always respected
+         - Full day off (am+pm): employee cannot work
+         - Half day off (am or pm only): employee can work with headcount 0.5
   HC-02: One job type per employee per day
   HC-03: Daily required headcount per job type must be met (soft for データ/その他)
   HC-04: Only assign job types the employee is qualified for
   HC-05: No work on weekends/holidays
   HC-06: 職人・サブ職人 are each assigned exactly 1 person per working day
+         (half-day workers are excluded from these roles)
 
 Soft constraints (objective function):
   SC-01: Minimize deviation from requested work days (weight 10)
        - "max" = maximize work days (penalize non-work)
+       - Half day counts as 0.5 work days
   SC-03: Minimize unfairness in work days across employees (weight 5)
   SC-04: Minimize job type imbalance per employee (weight 1)
   SC-05: Prefer higher-priority job types (lower ID = higher priority, weight 2)
@@ -64,8 +68,8 @@ def generate_schedule(
     if not all_job_type_ids:
         raise ValueError("No job types assigned to any employee")
 
-    # Requested days off per employee
-    emp_days_off: dict[int, set[date]] = {}
+    # Requested days off per employee (with period info)
+    emp_off_periods: dict[int, dict[date, set[str]]] = {}  # e_id -> date -> {"am","pm"}
     emp_requested_work: dict[int, str | None] = {}  # "1"-"23" or "max" or None
 
     for e_id in emp_ids:
@@ -76,11 +80,38 @@ def generate_schedule(
         )
         if req:
             details = db.query(RequestDetail).filter(RequestDetail.shift_request_id == req.id).all()
-            emp_days_off[e_id] = {d.date for d in details}
+            off_periods: dict[date, set[str]] = {}
+            for d in details:
+                if d.date not in off_periods:
+                    off_periods[d.date] = set()
+                if d.period == "all_day":
+                    off_periods[d.date].update({"am", "pm"})
+                else:
+                    off_periods[d.date].add(d.period)
+            emp_off_periods[e_id] = off_periods
             emp_requested_work[e_id] = str(req.requested_work_days) if req.requested_work_days is not None else None
         else:
-            emp_days_off[e_id] = set()
+            emp_off_periods[e_id] = {}
             emp_requested_work[e_id] = None
+
+    # Derive full-day off set and half-day headcount factor
+    emp_full_off: dict[int, set[date]] = {}  # dates with both am+pm off
+    emp_half_off: dict[int, dict[date, str]] = {}  # date -> which period is off ("am" or "pm")
+    emp_hc_factor: dict[int, dict[date, int]] = {}  # date -> 2 (full) or 1 (half day)
+
+    for e_id in emp_ids:
+        emp_full_off[e_id] = set()
+        emp_half_off[e_id] = {}
+        emp_hc_factor[e_id] = {}
+        for d, periods in emp_off_periods[e_id].items():
+            if "am" in periods and "pm" in periods:
+                emp_full_off[e_id].add(d)
+            elif "am" in periods:
+                emp_half_off[e_id][d] = "am"
+                emp_hc_factor[e_id][d] = 1  # half-day work
+            elif "pm" in periods:
+                emp_half_off[e_id][d] = "pm"
+                emp_hc_factor[e_id][d] = 1  # half-day work
 
     # Daily requirements: date -> job_type_id -> required_count
     daily_reqs: dict[date, dict[int, float]] = {}
@@ -118,10 +149,11 @@ def generate_schedule(
         for d in working_dates:
             model.add(work[e_id, d] == sum(x[e_id, d, j] for j in all_job_type_ids))
 
-    # HC-01: Requested days off -> must not work
+    # HC-01: Requested days off -> must not work (full day off only)
+    # Half-day off: employee can still work (headcount 0.5) — handled via emp_hc_factor
     for e_id in emp_ids:
         for d in working_dates:
-            if d in emp_days_off[e_id]:
+            if d in emp_full_off[e_id]:
                 model.add(work[e_id, d] == 0)
 
     # HC-02: At most one job type per day (already implied by work = sum(x))
@@ -138,6 +170,7 @@ def generate_schedule(
                     model.add(x[e_id, d, j] == 0)
 
     # HC-06: 職人・サブ職人は各営業日に必ず1名ずつ配置（ハード制約）
+    # 半日勤務者はフル勤務できないため、職人/サブ職人には割り当てない
     from database import JobType
     hard_one_jt_ids = set()
     for jt in db.query(JobType).filter(JobType.name.in_(["職人", "サブ職人"])).all():
@@ -145,12 +178,17 @@ def generate_schedule(
     for d in working_dates:
         for j in hard_one_jt_ids:
             if j in all_job_type_ids:
+                # 半日勤務者はこの職種に割り当てない
+                for e_id in emp_ids:
+                    if d in emp_half_off[e_id] and j in emp_job_types.get(e_id, []):
+                        model.add(x[e_id, d, j] == 0)
                 model.add(
                     sum(x[e_id, d, j] for e_id in emp_ids if j in emp_job_types.get(e_id, [])) == 1
                 )
 
     # HC-03: Meet daily requirements (soft constraint with high penalty)
     # Using integer scaling: multiply by 2 for 0.5 support
+    # Half-day workers contribute 1 unit (0.5), full-day workers contribute 2 units (1.0)
     violations = []
     shortage_vars = []  # Track shortages for objective penalty
     for d in working_dates:
@@ -161,7 +199,7 @@ def generate_schedule(
                 continue  # Already enforced as hard constraint above
             scaled_req = int(req_count * 2)
             supply = sum(
-                x[e_id, d, j] * 2
+                x[e_id, d, j] * emp_hc_factor[e_id].get(d, 2)
                 for e_id in emp_ids
                 if j in emp_job_types.get(e_id, [])
             )
@@ -179,37 +217,42 @@ def generate_schedule(
     # ---- Soft constraints via objective ----
     total_working_dates = len(working_dates)
 
-    # Total work days per employee
+    # Total work days per employee (scaled by 2: full day=2, half day=1)
+    scaled_total = total_working_dates * 2
     emp_total_work = {}
     for e_id in emp_ids:
-        emp_total_work[e_id] = model.new_int_var(0, total_working_dates, f"tw_{e_id}")
-        model.add(emp_total_work[e_id] == sum(work[e_id, d] for d in working_dates))
+        emp_total_work[e_id] = model.new_int_var(0, scaled_total, f"tw_{e_id}")
+        model.add(
+            emp_total_work[e_id] == sum(
+                work[e_id, d] * emp_hc_factor[e_id].get(d, 2) for d in working_dates
+            )
+        )
 
     objective_terms = []
 
-    # SC-01: Deviation from requested work days
+    # SC-01: Deviation from requested work days (scaled by 2)
     for e_id in emp_ids:
         rw = emp_requested_work.get(e_id)
         if rw == "max":
             # Maximize work days: penalize non-working days
-            not_work_count = model.new_int_var(0, total_working_dates, f"not_work_{e_id}")
-            model.add(not_work_count == total_working_dates - emp_total_work[e_id])
+            not_work_count = model.new_int_var(0, scaled_total, f"not_work_{e_id}")
+            model.add(not_work_count == scaled_total - emp_total_work[e_id])
             objective_terms.append(not_work_count * 10)
         elif rw is not None:
-            # Target specific number of work days
-            target = int(rw)
-            dev = model.new_int_var(0, total_working_dates, f"dev_work_{e_id}")
+            # Target specific number of work days (scaled by 2)
+            target = int(rw) * 2
+            dev = model.new_int_var(0, scaled_total, f"dev_work_{e_id}")
             model.add(dev >= emp_total_work[e_id] - target)
             model.add(dev >= target - emp_total_work[e_id])
             objective_terms.append(dev * 10)
 
-    # SC-03: Fairness - minimize max - min work days
+    # SC-03: Fairness - minimize max - min work days (scaled by 2)
     if len(emp_ids) > 1:
-        max_work = model.new_int_var(0, total_working_dates, "max_work")
-        min_work = model.new_int_var(0, total_working_dates, "min_work")
+        max_work = model.new_int_var(0, scaled_total, "max_work")
+        min_work = model.new_int_var(0, scaled_total, "min_work")
         model.add_max_equality(max_work, [emp_total_work[e_id] for e_id in emp_ids])
         model.add_min_equality(min_work, [emp_total_work[e_id] for e_id in emp_ids])
-        fairness_diff = model.new_int_var(0, total_working_dates, "fairness_diff")
+        fairness_diff = model.new_int_var(0, scaled_total, "fairness_diff")
         model.add(fairness_diff == max_work - min_work)
         objective_terms.append(fairness_diff * 5)
 
@@ -293,13 +336,24 @@ def generate_schedule(
                     break
 
             if assigned_job:
+                # Determine work_type based on half-day off requests
+                half_off_period = emp_half_off[e_id].get(d)
+                if half_off_period == "am":
+                    wt = "afternoon_half"  # AM off -> work PM
+                    hc = 0.5
+                elif half_off_period == "pm":
+                    wt = "morning_half"  # PM off -> work AM
+                    hc = 0.5
+                else:
+                    wt = "full"
+                    hc = 1.0
                 a = ShiftAssignment(
                     schedule_id=schedule.id,
                     employee_id=e_id,
                     date=d,
                     job_type_id=assigned_job,
-                    work_type="full",
-                    headcount_value=1.0,
+                    work_type=wt,
+                    headcount_value=hc,
                 )
             else:
                 a = ShiftAssignment(
@@ -322,13 +376,14 @@ def generate_schedule(
 
     db.commit()
 
-    # Check for violations
+    # Check for violations (account for half-day headcount)
     for d in working_dates:
         if d not in daily_reqs:
             continue
         for j, req_count in daily_reqs[d].items():
             actual = sum(
-                1 for e_id in emp_ids
+                emp_hc_factor[e_id].get(d, 2) / 2
+                for e_id in emp_ids
                 if solver.value(x.get((e_id, d, j), model.new_constant(0))) == 1
             )
             if actual < req_count:

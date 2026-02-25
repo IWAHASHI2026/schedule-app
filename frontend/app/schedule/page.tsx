@@ -189,6 +189,8 @@ export default function SchedulePage() {
                             {a?.work_type === "off" ? null : (
                               <span style={{ color: a?.job_type_color || undefined }} className="font-bold text-[11px]">
                                 {a?.job_type_name?.charAt(0) || ""}
+                                {a?.work_type === "morning_half" && <span className="text-[8px] font-normal opacity-70">前</span>}
+                                {a?.work_type === "afternoon_half" && <span className="text-[8px] font-normal opacity-70">後</span>}
                               </span>
                             )}
                           </td>

@@ -46,7 +46,7 @@ export default function GeneratePage() {
     setReqStatusCount({ total: statuses.length, done: statuses.filter((s) => s.has_request).length });
     setReqDaysCount(new Set(reqs.map((r) => r.date)).size);
 
-    // 希望休の日付をマッピング
+    // 希望休の日付をマッピング（半日休の期間情報を保持）
     const daysOffMap: Record<number, Set<string>> = {};
     for (const sr of shiftRequests) {
       const dates = new Set<string>();
@@ -296,6 +296,8 @@ export default function GeneratePage() {
                             ) : (
                               <span className="text-[10px]">
                                 {a?.job_type_name?.charAt(0) || ""}
+                                {a?.work_type === "morning_half" && <span className="text-[8px] text-muted-foreground">前</span>}
+                                {a?.work_type === "afternoon_half" && <span className="text-[8px] text-muted-foreground">後</span>}
                               </span>
                             )}
                           </td>
