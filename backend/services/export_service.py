@@ -11,7 +11,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from sqlalchemy.orm import Session
-from database import Schedule, ShiftAssignment, Employee, JobType
+from database import Schedule, ShiftAssignment, Employee, JobType, ShiftRequest
 import calendar
 import os
 
@@ -49,6 +49,13 @@ def _get_schedule_data(db: Session, month: str):
     days_in_month = calendar.monthrange(year, mon)[1]
     dates = [date(year, mon, d) for d in range(1, days_in_month + 1)]
 
+    # 希望休の日付セットを構築
+    requests = db.query(ShiftRequest).filter(ShiftRequest.target_month == month).all()
+    requested_off: set[tuple[int, date]] = set()
+    for req in requests:
+        for detail in req.details:
+            requested_off.add((req.employee_id, detail.date))
+
     # Build matrix: emp_id -> date -> job_type_name
     matrix: dict[int, dict[date, str]] = {}
     for a in assignments:
@@ -62,7 +69,10 @@ def _get_schedule_data(db: Session, month: str):
                 name += "(午後)"
             matrix[a.employee_id][a.date] = name
         else:
-            matrix[a.employee_id][a.date] = "休"
+            if (a.employee_id, a.date) in requested_off:
+                matrix[a.employee_id][a.date] = "希休"
+            else:
+                matrix[a.employee_id][a.date] = "調休"
 
     return employees, dates, matrix, jt_map
 
@@ -129,7 +139,13 @@ def generate_excel(db: Session, month: str) -> bytes:
 
             if d.weekday() >= 5:
                 cell.fill = PatternFill(start_color="D9D9D9", fill_type="solid")
-            elif val != "休":
+            elif val == "希休":
+                cell.fill = PatternFill(start_color="E9D5FF", fill_type="solid")
+                cell.font = Font(size=8, color="7C3AED")
+            elif val == "調休":
+                cell.fill = PatternFill(start_color="E2E8F0", fill_type="solid")
+                cell.font = Font(size=8, color="64748B")
+            elif val:
                 for jt_name, color in JOB_TYPE_COLORS.items():
                     if jt_name in val:
                         cell.fill = PatternFill(start_color=color, fill_type="solid")
@@ -202,12 +218,31 @@ def generate_pdf(db: Session, month: str) -> bytes:
     for row_idx, emp in enumerate(employees, start=1):
         for col_idx, d in enumerate(dates):
             val = matrix.get(emp.id, {}).get(d, "")
-            for jt_name, color in jt_colors_rgb.items():
-                if jt_name in val:
-                    style_cmds.append(
-                        ('BACKGROUND', (col_idx + 1, row_idx), (col_idx + 1, row_idx), color)
-                    )
-                    break
+            if val == "希休":
+                style_cmds.append(
+                    ('BACKGROUND', (col_idx + 1, row_idx), (col_idx + 1, row_idx),
+                     colors.Color(0.91, 0.84, 1.0))
+                )
+                style_cmds.append(
+                    ('TEXTCOLOR', (col_idx + 1, row_idx), (col_idx + 1, row_idx),
+                     colors.Color(0.49, 0.23, 0.93))
+                )
+            elif val == "調休":
+                style_cmds.append(
+                    ('BACKGROUND', (col_idx + 1, row_idx), (col_idx + 1, row_idx),
+                     colors.Color(0.89, 0.91, 0.94))
+                )
+                style_cmds.append(
+                    ('TEXTCOLOR', (col_idx + 1, row_idx), (col_idx + 1, row_idx),
+                     colors.Color(0.39, 0.45, 0.55))
+                )
+            else:
+                for jt_name, color in jt_colors_rgb.items():
+                    if jt_name in val:
+                        style_cmds.append(
+                            ('BACKGROUND', (col_idx + 1, row_idx), (col_idx + 1, row_idx), color)
+                        )
+                        break
 
     table.setStyle(TableStyle(style_cmds))
     doc.build([table])

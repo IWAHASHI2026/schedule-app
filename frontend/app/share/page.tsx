@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CalendarCheck } from "lucide-react";
 import {
-  getEmployees, getJobTypes, getSchedules, getAssignments, getHolidays,
+  getEmployees, getJobTypes, getSchedules, getAssignments, getHolidays, getRequests,
   type Employee, type JobType, type Schedule, type ShiftAssignment, type Holiday,
 } from "@/lib/api";
 
@@ -19,6 +19,7 @@ function SharePageContent() {
   const [assignments, setAssignments] = useState<ShiftAssignment[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(true);
+  const [requestedDaysOff, setRequestedDaysOff] = useState<Record<number, Set<string>>>({});
 
   // Hide navigation sidebar for public view
   useEffect(() => {
@@ -36,15 +37,28 @@ function SharePageContent() {
     if (!month) { setLoading(false); return; }
     (async () => {
       try {
-        const [emps, jts, scheds, hols] = await Promise.all([
+        const [emps, jts, scheds, hols, shiftRequests] = await Promise.all([
           getEmployees(),
           getJobTypes(),
           getSchedules(month),
           getHolidays(parseInt(month.split("-")[0])),
+          getRequests(month),
         ]);
         setEmployees(emps);
         setJobTypes(jts);
         setHolidays(hols);
+
+        // 希望休の日付をマッピング
+        const daysOffMap: Record<number, Set<string>> = {};
+        for (const sr of shiftRequests) {
+          const dates = new Set<string>();
+          for (const d of sr.details) {
+            dates.add(d.date);
+          }
+          daysOffMap[sr.employee_id] = dates;
+        }
+        setRequestedDaysOff(daysOffMap);
+
         // Prefer published > confirmed > any latest
         const target = scheds.find((s) => s.status === "published")
           || scheds.find((s) => s.status === "confirmed")
@@ -148,13 +162,29 @@ function SharePageContent() {
                       const a = assignmentMap[`${emp.id}_${d}`];
                       const dow = new Date(d).getDay();
                       const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
+                      const isOff = a?.work_type === "off";
+                      const isRequested = requestedDaysOff[emp.id]?.has(d);
                       return (
                         <td
                           key={d}
                           className={`px-1 py-1 border text-center ${isNW ? "bg-gray-100" : ""}`}
-                          style={a?.job_type_color && a.work_type !== "off" ? { backgroundColor: a.job_type_color + "30" } : {}}
+                          style={
+                            a?.job_type_color && !isOff
+                              ? { backgroundColor: a.job_type_color + "30" }
+                              : isOff && !isNW && isRequested
+                                ? { backgroundColor: "#F3E8FF" }
+                                : isOff && !isNW && !isRequested
+                                  ? { backgroundColor: "#F1F5F9" }
+                                  : {}
+                          }
                         >
-                          {a?.work_type === "off" ? null : (
+                          {isOff ? (
+                            isNW ? null : (
+                              <span className={isRequested ? "text-purple-600 font-bold text-[10px]" : "text-slate-500 text-[10px]"}>
+                                {isRequested ? "希休" : "調休"}
+                              </span>
+                            )
+                          ) : (
                             <span style={{ color: a?.job_type_color || undefined }} className="font-bold text-[11px]">
                               {a?.job_type_name?.charAt(0) || ""}
                               {a?.work_type === "morning_half" && <span className="text-[8px] font-normal opacity-70">前</span>}

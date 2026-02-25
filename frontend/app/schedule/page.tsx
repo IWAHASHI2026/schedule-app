@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, Globe } from "lucide-react";
 import {
-  getEmployees, getJobTypes, getSchedules, getAssignments, getHolidays,
+  getEmployees, getJobTypes, getSchedules, getAssignments, getHolidays, getRequests,
   updateAssignments, updateScheduleStatus,
   type Employee, type JobType, type Schedule, type ShiftAssignment, type Holiday,
 } from "@/lib/api";
@@ -23,17 +23,31 @@ export default function SchedulePage() {
   const [assignments, setAssignments] = useState<ShiftAssignment[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [editCell, setEditCell] = useState<{ empId: number; date: string } | null>(null);
+  const [requestedDaysOff, setRequestedDaysOff] = useState<Record<number, Set<string>>>({});
 
   const load = async () => {
-    const [emps, jts, scheds, hols] = await Promise.all([
+    const [emps, jts, scheds, hols, shiftRequests] = await Promise.all([
       getEmployees(),
       getJobTypes(),
       getSchedules(month),
       getHolidays(parseInt(month.split("-")[0])),
+      getRequests(month),
     ]);
     setEmployees(emps);
     setJobTypes(jts);
     setHolidays(hols);
+
+    // 希望休の日付をマッピング
+    const daysOffMap: Record<number, Set<string>> = {};
+    for (const sr of shiftRequests) {
+      const dates = new Set<string>();
+      for (const d of sr.details) {
+        dates.add(d.date);
+      }
+      daysOffMap[sr.employee_id] = dates;
+    }
+    setRequestedDaysOff(daysOffMap);
+
     if (scheds.length > 0) {
       setSchedule(scheds[0]);
       const asn = await getAssignments(scheds[0].id);
@@ -179,14 +193,30 @@ export default function SchedulePage() {
                         const dow = new Date(d).getDay();
                         const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
                         const isEditing = editCell?.empId === emp.id && editCell?.date === d;
+                        const isOff = a?.work_type === "off";
+                        const isRequested = requestedDaysOff[emp.id]?.has(d);
                         return (
                           <td
                             key={d}
                             onClick={() => handleCellClick(emp.id, d)}
                             className={`px-1 py-1 border text-center cursor-pointer hover:ring-2 hover:ring-blue-300 ${isNW ? "bg-gray-100" : ""} ${isEditing ? "ring-2 ring-blue-500" : ""}`}
-                            style={a?.job_type_color && a.work_type !== "off" ? { backgroundColor: a.job_type_color + "30" } : {}}
+                            style={
+                              a?.job_type_color && !isOff
+                                ? { backgroundColor: a.job_type_color + "30" }
+                                : isOff && !isNW && isRequested
+                                  ? { backgroundColor: "#F3E8FF" }
+                                  : isOff && !isNW && !isRequested
+                                    ? { backgroundColor: "#F1F5F9" }
+                                    : {}
+                            }
                           >
-                            {a?.work_type === "off" ? null : (
+                            {isOff ? (
+                              isNW ? null : (
+                                <span className={isRequested ? "text-purple-600 font-bold text-[10px]" : "text-slate-500 text-[10px]"}>
+                                  {isRequested ? "希休" : "調休"}
+                                </span>
+                              )
+                            ) : (
                               <span style={{ color: a?.job_type_color || undefined }} className="font-bold text-[11px]">
                                 {a?.job_type_name?.charAt(0) || ""}
                                 {a?.work_type === "morning_half" && <span className="text-[8px] font-normal opacity-70">前</span>}
