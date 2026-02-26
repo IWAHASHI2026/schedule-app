@@ -57,19 +57,29 @@ def parse_modification(input_text: str, current_summary: str) -> list[dict]:
 
     response_text = message.content[0].text.strip()
 
-    # Extract JSON from response
-    if response_text.startswith("```"):
+    # Extract JSON from response (handle ```json ... ``` blocks)
+    if "```" in response_text:
         lines = response_text.split("\n")
         json_lines = []
         in_block = False
         for line in lines:
-            if line.startswith("```") and not in_block:
+            if line.strip().startswith("```") and not in_block:
                 in_block = True
                 continue
-            elif line.startswith("```") and in_block:
+            elif line.strip().startswith("```") and in_block:
                 break
             elif in_block:
                 json_lines.append(line)
         response_text = "\n".join(json_lines)
+
+    # Extract JSON array even if surrounded by extra text
+    start = response_text.find("[")
+    end = response_text.rfind("]")
+    if start != -1 and end != -1:
+        response_text = response_text[start:end + 1]
+
+    # Remove trailing commas before ] or } (common LLM output issue)
+    import re
+    response_text = re.sub(r",\s*([}\]])", r"\1", response_text)
 
     return json.loads(response_text)
