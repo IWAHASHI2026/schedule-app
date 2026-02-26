@@ -20,6 +20,7 @@ Soft constraints (objective function):
   SC-04: Minimize job type imbalance per employee (weight 1)
   SC-05: Prefer higher-priority job types (lower ID = higher priority, weight 2)
   SC-06: Prefer full-time employees over dependent (weight 3)
+  SC-07: Avoid same job type on consecutive working days per employee (weight 3)
 """
 
 from ortools.sat.python import cp_model
@@ -290,6 +291,19 @@ def generate_schedule(
         if emp_type[e_id] == "dependent":
             for d in working_dates:
                 objective_terms.append(work[e_id, d] * 3)
+
+    # SC-07: Avoid same job type on consecutive working days
+    for e_id in emp_ids:
+        allowed = emp_job_types.get(e_id, [])
+        if len(allowed) <= 1:
+            continue  # Only one job type available, cannot vary
+        for i in range(len(working_dates) - 1):
+            d1 = working_dates[i]
+            d2 = working_dates[i + 1]
+            for j in allowed:
+                consec = model.new_bool_var(f"consec_{e_id}_{d1}_{j}")
+                model.add(consec >= x[e_id, d1, j] + x[e_id, d2, j] - 1)
+                objective_terms.append(consec * 3)
 
     # Penalty for requirement shortages (very high weight to prioritize meeting requirements)
     for sv in shortage_vars:
