@@ -114,16 +114,14 @@ function SharePageContent() {
     assignments.filter((a) => a.date === dateStr && a.job_type_id === jtId).reduce((s, a) => s + a.headcount_value, 0);
   const getDailyTotal = (dateStr: string) =>
     assignments.filter((a) => a.date === dateStr && a.work_type !== "off").reduce((s, a) => s + a.headcount_value, 0);
-  const getStaffTotal = (empId: number) =>
-    assignments.filter((a) => a.employee_id === empId && a.work_type !== "off").reduce((s, a) => s + a.headcount_value, 0);
 
   const dowNames = ["日", "月", "火", "水", "木", "金", "土"];
 
   return (
-    <div className="p-6 max-w-full">
-      <div className="flex items-center gap-3 mb-6">
-        <CalendarCheck className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold">
+    <div className="p-2 sm:p-4 md:p-6 max-w-full">
+      <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-6 flex-wrap">
+        <CalendarCheck className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+        <h1 className="text-lg sm:text-xl md:text-2xl font-bold">
           シフト表 — {calYear}年{calMonth}月
         </h1>
         <Badge variant={schedule.status === "published" ? "success" : schedule.status === "confirmed" ? "default" : "secondary"}>
@@ -132,32 +130,31 @@ function SharePageContent() {
       </div>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="pt-3 sm:pt-6 px-2 sm:px-6">
           <div className="overflow-x-auto">
-            <table className="text-xs border-collapse w-full">
+            <table className="text-[10px] sm:text-xs border-collapse w-full">
               <thead>
                 <tr>
-                  <th className="sticky left-0 bg-card z-10 px-2 py-1 border text-left min-w-[80px]">スタッフ</th>
+                  <th className="sticky left-0 bg-card z-10 px-1 py-0.5 sm:px-2 sm:py-1 border text-left min-w-[56px] sm:min-w-[80px]">スタッフ</th>
                   {allDates.map((d) => {
                     const day = parseInt(d.split("-")[2]);
                     const dow = new Date(d).getDay();
                     const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
                     return (
-                      <th key={d} className={`px-1 py-1 border text-center min-w-[36px] ${isNW ? "bg-gray-100" : ""}`}>
+                      <th key={d} className={`px-0.5 py-0.5 sm:px-1 sm:py-1 border text-center min-w-[28px] sm:min-w-[36px] ${isNW ? "bg-gray-100" : ""}`}>
                         <div>{day}</div>
-                        <div className={`text-[10px] ${dow === 0 ? "text-red-500" : dow === 6 ? "text-blue-500" : ""}`}>
+                        <div className={`text-[8px] sm:text-[10px] ${dow === 0 ? "text-red-500" : dow === 6 ? "text-blue-500" : ""}`}>
                           {dowNames[dow]}
                         </div>
                       </th>
                     );
                   })}
-                  <th className="px-2 py-1 border text-center min-w-[40px] bg-muted/50">合計</th>
                 </tr>
               </thead>
               <tbody>
                 {employees.map((emp) => (
                   <tr key={emp.id}>
-                    <td className="sticky left-0 bg-card z-10 px-2 py-1 border font-medium">{emp.name}</td>
+                    <td className="sticky left-0 bg-card z-10 px-1 py-0.5 sm:px-2 sm:py-1 border font-medium">{emp.name}</td>
                     {allDates.map((d) => {
                       const a = assignmentMap[`${emp.id}_${d}`];
                       const dow = new Date(d).getDay();
@@ -167,7 +164,7 @@ function SharePageContent() {
                       return (
                         <td
                           key={d}
-                          className={`px-1 py-1 border text-center ${isNW ? "bg-gray-100" : ""}`}
+                          className={`px-0.5 py-0.5 sm:px-1 sm:py-1 border text-center ${isNW ? "bg-gray-100" : ""}`}
                           style={
                             a?.job_type_color && !isOff
                               ? { backgroundColor: a.job_type_color + "30" }
@@ -180,50 +177,45 @@ function SharePageContent() {
                         >
                           {isOff ? (
                             isNW ? null : (
-                              <span className={isRequested ? "text-purple-600 font-bold text-[10px]" : "text-slate-500 text-[10px]"}>
+                              <span className={isRequested ? "text-purple-600 font-bold text-[8px] sm:text-[10px]" : "text-slate-500 text-[8px] sm:text-[10px]"}>
                                 {isRequested ? "希休" : "調休"}
                               </span>
                             )
                           ) : (
-                            <span style={{ color: a?.job_type_color || undefined }} className="font-bold text-[11px]">
+                            <span style={{ color: a?.job_type_color || undefined }} className="font-bold text-[9px] sm:text-[11px]">
                               {a?.job_type_name?.charAt(0) || ""}
-                              {a?.work_type === "morning_half" && <span className="text-[8px] font-normal opacity-70">前</span>}
-                              {a?.work_type === "afternoon_half" && <span className="text-[8px] font-normal opacity-70">後</span>}
+                              {a?.work_type === "morning_half" && <span className="text-[7px] sm:text-[8px] font-normal opacity-70">前</span>}
+                              {a?.work_type === "afternoon_half" && <span className="text-[7px] sm:text-[8px] font-normal opacity-70">後</span>}
                             </span>
                           )}
                         </td>
                       );
                     })}
-                    <td className="px-1 py-1 border text-center font-bold bg-muted/50">
-                      {getStaffTotal(emp.id) || ""}
-                    </td>
                   </tr>
                 ))}
                 {jobTypes.map((jt) => (
                   <tr key={`summary-${jt.id}`} className="bg-muted/30">
-                    <td className="sticky left-0 bg-muted/30 z-10 px-2 py-1 border text-[10px] font-medium" style={{ color: jt.color || undefined }}>
+                    <td className="sticky left-0 bg-muted/30 z-10 px-1 py-0.5 sm:px-2 sm:py-1 border text-[8px] sm:text-[10px] font-medium" style={{ color: jt.color || undefined }}>
                       {jt.name}
                     </td>
                     {allDates.map((d) => (
-                      <td key={d} className="px-1 py-1 border text-center text-[10px] bg-muted/30">
+                      <td key={d} className="px-0.5 py-0.5 sm:px-1 sm:py-1 border text-center text-[8px] sm:text-[10px] bg-muted/30">
                         {getSummary(d, jt.id) || ""}
                       </td>
                     ))}
-                    <td className="px-1 py-1 border bg-muted/30" />
                   </tr>
                 ))}
                 <tr className="bg-muted/60 font-bold">
-                  <td className="sticky left-0 bg-muted/60 z-10 px-2 py-1 border text-[10px]">日合計</td>
+                  <td className="sticky left-0 bg-muted/60 z-10 px-1 py-0.5 sm:px-2 sm:py-1 border text-[8px] sm:text-[10px]">合計</td>
                   {allDates.map((d) => {
                     const dow = new Date(d).getDay();
                     const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
                     return (
-                      <td key={d} className="px-1 py-1 border text-center text-[10px] bg-muted/60">
+                      <td key={d} className="px-0.5 py-0.5 sm:px-1 sm:py-1 border text-center text-[8px] sm:text-[10px] bg-muted/60">
                         {isNW ? "" : getDailyTotal(d) || ""}
                       </td>
                     );
                   })}
-                  <td className="px-1 py-1 border bg-muted/60" />
                 </tr>
               </tbody>
             </table>
