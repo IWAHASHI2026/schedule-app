@@ -19,6 +19,7 @@ Soft constraints (objective function):
   SC-03: Minimize unfairness in work days across employees (weight 5)
   SC-04: Minimize job type imbalance per employee (weight 1)
   SC-05: Prefer higher-priority job types (lower ID = higher priority, weight 2)
+  SC-06: Prefer full-time employees over dependent (weight 3)
 """
 
 from ortools.sat.python import cp_model
@@ -54,6 +55,7 @@ def generate_schedule(
 
     emp_ids = [e.id for e in employees]
     emp_names = {e.id: e.name for e in employees}
+    emp_type = {e.id: e.employment_type for e in employees}
 
     # Employee -> allowed job type ids
     emp_job_types: dict[int, list[int]] = {}
@@ -283,6 +285,12 @@ def generate_schedule(
             for j in all_job_type_ids:
                 objective_terms.append(x[e_id, d, j] * j * priority_weight)
 
+    # SC-06: Prefer full-time employees over dependent
+    for e_id in emp_ids:
+        if emp_type[e_id] == "dependent":
+            for d in working_dates:
+                objective_terms.append(work[e_id, d] * 3)
+
     # Penalty for requirement shortages (very high weight to prioritize meeting requirements)
     for sv in shortage_vars:
         objective_terms.append(sv * 100)
@@ -296,7 +304,15 @@ def generate_schedule(
     status = solver.solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        raise ValueError("Could not find a feasible schedule. Check constraints and data.")
+        reasons = _diagnose_infeasibility(
+            emp_ids, emp_names, emp_job_types, emp_full_off, emp_half_off,
+            working_dates, hard_one_jt_ids, all_job_type_ids, db,
+        )
+        if reasons:
+            msg = "スケジュールを生成できませんでした。以下の問題が見つかりました:\n" + "\n".join(reasons)
+        else:
+            msg = "スケジュールを生成できませんでした。制約条件とデータを確認してください。"
+        raise ValueError(msg)
 
     # ---- Save results ----
     schedule = Schedule(target_month=month, status="preview")
@@ -399,6 +415,77 @@ def generate_schedule(
                 )
 
     return schedule.id, assignments, violations
+
+
+def _diagnose_infeasibility(
+    emp_ids, emp_names, emp_job_types, emp_full_off, emp_half_off,
+    working_dates, hard_one_jt_ids, all_job_type_ids, db,
+) -> list[str]:
+    """ソルバー失敗時の原因を診断し、日本語メッセージのリストを返す。"""
+    from database import JobType
+    reasons = []
+    dow_names = ["月", "火", "水", "木", "金", "土", "日"]
+    jt_name_map = {jt.id: jt.name for jt in db.query(JobType).all()}
+
+    # チェック1: HC-06 — 職人/サブ職人が配置不可能な日
+    for j in hard_one_jt_ids:
+        jt_name = jt_name_map.get(j, f"職種{j}")
+        for d in working_dates:
+            available = []
+            unavailable = []
+            for e_id in emp_ids:
+                if j not in emp_job_types.get(e_id, []):
+                    continue
+                if d in emp_full_off[e_id]:
+                    unavailable.append(emp_names[e_id] + "（希望休）")
+                elif d in emp_half_off[e_id]:
+                    unavailable.append(emp_names[e_id] + "（半日休）")
+                else:
+                    available.append(emp_names[e_id])
+            if len(available) == 0:
+                dow = dow_names[d.weekday()]
+                reason = (
+                    f"{d.month}月{d.day}日（{dow}）: "
+                    f"{jt_name}の資格者が全員休みのため配置できません"
+                )
+                if unavailable:
+                    reason += f"（{', '.join(unavailable)}）"
+                reasons.append(reason)
+
+    # チェック2: HC-06 同時配置 — 職人+サブ職人の候補が不足
+    if len(hard_one_jt_ids) >= 2:
+        for d in working_dates:
+            available_per_jt: dict[int, set[int]] = {}
+            for j in hard_one_jt_ids:
+                avail: set[int] = set()
+                for e_id in emp_ids:
+                    if j not in emp_job_types.get(e_id, []):
+                        continue
+                    if d in emp_full_off[e_id] or d in emp_half_off[e_id]:
+                        continue
+                    avail.add(e_id)
+                available_per_jt[j] = avail
+            # 全職種に1人ずつ必要 → ユニーク人数が足りるか
+            all_available: set[int] = set()
+            for avail in available_per_jt.values():
+                all_available |= avail
+            if len(all_available) < len(hard_one_jt_ids):
+                dow = dow_names[d.weekday()]
+                jt_names = [jt_name_map.get(j, "") for j in hard_one_jt_ids]
+                reasons.append(
+                    f"{d.month}月{d.day}日（{dow}）: "
+                    f"{'・'.join(jt_names)}を同時に配置できるスタッフが不足しています"
+                    f"（必要{len(hard_one_jt_ids)}名、利用可能{len(all_available)}名）"
+                )
+
+    # チェック3: HC-04 — 資格者不在の職種
+    for j in all_job_type_ids:
+        qualified = [e_id for e_id in emp_ids if j in emp_job_types.get(e_id, [])]
+        if len(qualified) == 0:
+            jt_name = jt_name_map.get(j, f"職種{j}")
+            reasons.append(f"「{jt_name}」に資格のあるスタッフが登録されていません")
+
+    return reasons
 
 
 def _apply_extra_constraint(

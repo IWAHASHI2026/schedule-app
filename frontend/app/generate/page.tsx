@@ -195,11 +195,13 @@ export default function GeneratePage() {
 
       {error && (
         <Card className="border-destructive">
-          <CardContent className="pt-6">
-            <p className="text-destructive flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" />
-              {error}
-            </p>
+          <CardContent className="pt-6 space-y-1">
+            {error.split("\n").map((line, i) => (
+              <p key={i} className={`text-destructive ${i === 0 ? "flex items-center gap-2 font-medium" : "ml-6 text-sm"}`}>
+                {i === 0 && <AlertTriangle className="h-4 w-4 shrink-0" />}
+                {line}
+              </p>
+            ))}
           </CardContent>
         </Card>
       )}
