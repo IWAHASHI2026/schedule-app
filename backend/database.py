@@ -1,6 +1,6 @@
 from sqlalchemy import (
     create_engine, Column, Integer, Text, DateTime, Date, Float, ForeignKey,
-    event
+    event, inspect as sa_inspect, text as sa_text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
 from datetime import datetime, date
@@ -13,18 +13,31 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./shift_scheduler.db")
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+# Railway provides postgres:// but SQLAlchemy requires postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+
+# SQLite needs check_same_thread=False; PostgreSQL does not
+_engine_kwargs = {}
+if _is_sqlite:
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-# Enable WAL mode and foreign keys for SQLite
-@event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
+# Enable WAL mode and foreign keys for SQLite only
+if _is_sqlite:
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 def get_db():
@@ -139,73 +152,74 @@ class NlpModificationLog(Base):
     schedule = relationship("Schedule", back_populates="nlp_logs")
 
 
+def _get_existing_columns(table_name: str) -> list[str]:
+    """Get existing column names for a table using SQLAlchemy inspect."""
+    try:
+        inspector = sa_inspect(engine)
+        if table_name not in inspector.get_table_names():
+            return []
+        return [col["name"] for col in inspector.get_columns(table_name)]
+    except Exception:
+        return []
+
+
 def _migrate_add_period_column():
     """Add period column to request_details if it doesn't exist."""
-    import sqlite3
-    db_path = DATABASE_URL.replace("sqlite:///", "")
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(request_details)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if "period" not in columns:
-            cursor.execute("ALTER TABLE request_details ADD COLUMN period TEXT NOT NULL DEFAULT 'all_day'")
-            conn.commit()
-        conn.close()
+        columns = _get_existing_columns("request_details")
+        if columns and "period" not in columns:
+            with engine.begin() as conn:
+                conn.execute(sa_text(
+                    "ALTER TABLE request_details ADD COLUMN period TEXT NOT NULL DEFAULT 'all_day'"
+                ))
     except Exception:
         pass  # Table may not exist yet
 
 
 def _migrate_add_employment_type():
     """Add employment_type column to employees if it doesn't exist."""
-    import sqlite3
-    db_path = DATABASE_URL.replace("sqlite:///", "")
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(employees)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if "employment_type" not in columns:
-            cursor.execute("ALTER TABLE employees ADD COLUMN employment_type TEXT NOT NULL DEFAULT 'full_time'")
-            conn.commit()
-        conn.close()
+        columns = _get_existing_columns("employees")
+        if columns and "employment_type" not in columns:
+            with engine.begin() as conn:
+                conn.execute(sa_text(
+                    "ALTER TABLE employees ADD COLUMN employment_type TEXT NOT NULL DEFAULT 'full_time'"
+                ))
     except Exception:
         pass  # Table may not exist yet
 
 
 def _migrate_work_days_to_text():
     """Convert requested_work_days from integer to text in shift_requests."""
-    import sqlite3
-    db_path = DATABASE_URL.replace("sqlite:///", "")
+    if not _is_sqlite:
+        return  # PostgreSQL text columns don't need this migration
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        # Cast any existing integer values to text
-        cursor.execute("UPDATE shift_requests SET requested_work_days = CAST(requested_work_days AS TEXT) WHERE requested_work_days IS NOT NULL AND typeof(requested_work_days) != 'text'")
-        conn.commit()
-        conn.close()
+        columns = _get_existing_columns("shift_requests")
+        if columns and "requested_work_days" in columns:
+            with engine.begin() as conn:
+                conn.execute(sa_text(
+                    "UPDATE shift_requests SET requested_work_days = CAST(requested_work_days AS TEXT) "
+                    "WHERE requested_work_days IS NOT NULL AND typeof(requested_work_days) != 'text'"
+                ))
     except Exception:
         pass  # Table may not exist yet
 
 
 def _migrate_add_sort_order():
     """Add sort_order column to employees if it doesn't exist."""
-    import sqlite3
-    db_path = DATABASE_URL.replace("sqlite:///", "")
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(employees)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if "sort_order" not in columns:
-            cursor.execute("ALTER TABLE employees ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
-            # Assign sort_order based on existing id order
-            cursor.execute("SELECT id FROM employees ORDER BY id")
-            rows = cursor.fetchall()
-            for idx, (emp_id,) in enumerate(rows):
-                cursor.execute("UPDATE employees SET sort_order = ? WHERE id = ?", (idx, emp_id))
-            conn.commit()
-        conn.close()
+        columns = _get_existing_columns("employees")
+        if columns and "sort_order" not in columns:
+            with engine.begin() as conn:
+                conn.execute(sa_text(
+                    "ALTER TABLE employees ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                ))
+                # Assign sort_order based on existing id order
+                rows = conn.execute(sa_text("SELECT id FROM employees ORDER BY id")).fetchall()
+                for idx, row in enumerate(rows):
+                    conn.execute(sa_text(
+                        "UPDATE employees SET sort_order = :idx WHERE id = :id"
+                    ), {"idx": idx, "id": row[0]})
     except Exception:
         pass  # Table may not exist yet
 
