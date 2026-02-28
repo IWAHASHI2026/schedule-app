@@ -7,12 +7,13 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
-def parse_modification(input_text: str, current_summary: str, schedule_detail: str = "") -> list[dict]:
+def parse_modification(input_text: str, current_summary: str, schedule_detail: str = "", target_month: str = "") -> list[dict]:
     """
     Use Claude API to parse a natural language shift modification request
     into structured constraint data.
 
     schedule_detail: per-employee daily schedule (e.g. "若生亜紀子: 3/2=データ, 3/3=休み, ...")
+    target_month: schedule month in "YYYY-MM" format (e.g. "2026-03")
     """
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key or api_key == "your-api-key-here":
@@ -22,6 +23,10 @@ def parse_modification(input_text: str, current_summary: str, schedule_detail: s
 
     prompt = f"""あなたはシフト修正指示を解析するアシスタントです。
 ユーザーの指示を読み、必要最小限の変更だけをJSON配列で出力してください。
+
+## 対象スケジュール月
+{target_month}
+※ ユーザーが「3/2」と言った場合、日付は「{target_month}-02」です。月と年は必ずこの対象月に合わせてください。
 
 ## ユーザーの修正指示
 {input_text}

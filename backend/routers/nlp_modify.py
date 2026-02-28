@@ -59,7 +59,7 @@ def nlp_modify(schedule_id: int, body: NlpModifyRequest, db: Session = Depends(g
 
     # Parse with Claude
     try:
-        parsed = parse_modification(body.input_text, current_summary, schedule_detail)
+        parsed = parse_modification(body.input_text, current_summary, schedule_detail, schedule.target_month)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
