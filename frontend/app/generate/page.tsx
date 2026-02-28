@@ -11,6 +11,7 @@ import { Wand2, RefreshCw, Check, X, AlertTriangle, Loader2 } from "lucide-react
 import {
   getEmployees, getRequestStatus, getRequirements, getJobTypes,
   getSchedules, generateSchedule, getAssignments, getRequests, getHolidays, nlpModify, approveNlpLog, rejectNlpLog,
+  getJobTypeAbbr,
   type Employee, type JobType, type ShiftAssignment, type ShiftRequest, type Holiday, type NlpModifyResult,
 } from "@/lib/api";
 
@@ -301,7 +302,7 @@ export default function GeneratePage() {
                               )
                             ) : (
                               <span className="text-[10px]">
-                                {a?.job_type_name?.charAt(0) || ""}
+                                {getJobTypeAbbr(a?.job_type_name)}
                                 {a?.work_type === "morning_half" && <span className="text-[8px] text-muted-foreground">前</span>}
                                 {a?.work_type === "afternoon_half" && <span className="text-[8px] text-muted-foreground">後</span>}
                               </span>
@@ -353,7 +354,7 @@ export default function GeneratePage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <Textarea
-              placeholder="例: スタッフAのデータをもっと増やして。スタッフBのその他を減らしてください"
+              placeholder="例: スタッフAのlkデータをもっと増やして。スタッフBのその他を減らしてください"
               value={nlpText}
               onChange={(e) => setNlpText(e.target.value)}
             />

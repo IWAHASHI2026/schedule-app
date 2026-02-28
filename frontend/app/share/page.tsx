@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { CalendarCheck } from "lucide-react";
 import {
   getEmployees, getJobTypes, getSchedules, getAssignments, getHolidays, getRequests,
+  getJobTypeAbbr,
   type Employee, type JobType, type Schedule, type ShiftAssignment, type Holiday,
 } from "@/lib/api";
 
@@ -183,7 +184,7 @@ function SharePageContent() {
                             )
                           ) : (
                             <span style={{ color: a?.job_type_color || undefined }} className="font-bold text-[9px] sm:text-[11px]">
-                              {a?.job_type_name?.charAt(0) || ""}
+                              {getJobTypeAbbr(a?.job_type_name)}
                               {a?.work_type === "morning_half" && <span className="text-[7px] sm:text-[8px] font-normal opacity-70">前</span>}
                               {a?.work_type === "afternoon_half" && <span className="text-[7px] sm:text-[8px] font-normal opacity-70">後</span>}
                             </span>

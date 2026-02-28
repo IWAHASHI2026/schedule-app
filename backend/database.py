@@ -87,6 +87,7 @@ class ShiftRequest(Base):
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
     target_month = Column(Text, nullable=False)
     requested_work_days = Column(Text)  # "1"-"23" or "max"
+    weekly_work_day_limit = Column(Integer, nullable=True)
     note = Column(Text)
 
     employee = relationship("Employee", back_populates="shift_requests")
@@ -224,6 +225,68 @@ def _migrate_add_sort_order():
         pass  # Table may not exist yet
 
 
+def _migrate_add_weekly_work_day_limit():
+    """Add weekly_work_day_limit column to shift_requests if it doesn't exist."""
+    try:
+        columns = _get_existing_columns("shift_requests")
+        if columns and "weekly_work_day_limit" not in columns:
+            with engine.begin() as conn:
+                conn.execute(sa_text(
+                    "ALTER TABLE shift_requests ADD COLUMN weekly_work_day_limit INTEGER"
+                ))
+    except Exception:
+        pass  # Table may not exist yet
+
+
+def _migrate_split_data_job_type():
+    """Rename 'データ' to 'lkデータ' and add 'uv/cデータ' job type.
+    Auto-assign 'uv/cデータ' to all employees who had 'データ'."""
+    try:
+        inspector = sa_inspect(engine)
+        if "job_types" not in inspector.get_table_names():
+            return
+        with engine.begin() as conn:
+            # Check if 'データ' exists and 'lkデータ' does not
+            row = conn.execute(sa_text(
+                "SELECT id FROM job_types WHERE name = 'データ'"
+            )).fetchone()
+            if row is None:
+                return  # Already migrated or no data job type
+            lk_check = conn.execute(sa_text(
+                "SELECT id FROM job_types WHERE name = 'lkデータ'"
+            )).fetchone()
+            if lk_check is not None:
+                return  # Already migrated
+
+            data_id = row[0]
+            # Rename データ → lkデータ with new color
+            conn.execute(sa_text(
+                "UPDATE job_types SET name = 'lkデータ', color = '#51CF66' WHERE id = :id"
+            ), {"id": data_id})
+
+            # Add uv/cデータ
+            conn.execute(sa_text(
+                "INSERT INTO job_types (name, color) VALUES ('uv/cデータ', '#69DB7C')"
+            ))
+            uvc_row = conn.execute(sa_text(
+                "SELECT id FROM job_types WHERE name = 'uv/cデータ'"
+            )).fetchone()
+            if uvc_row is None:
+                return
+            uvc_id = uvc_row[0]
+
+            # Auto-assign uv/cデータ to all employees who had データ (now lkデータ)
+            emp_rows = conn.execute(sa_text(
+                "SELECT employee_id FROM employee_job_types WHERE job_type_id = :jt_id"
+            ), {"jt_id": data_id}).fetchall()
+            for emp_row in emp_rows:
+                conn.execute(sa_text(
+                    "INSERT INTO employee_job_types (employee_id, job_type_id) VALUES (:emp_id, :jt_id)"
+                ), {"emp_id": emp_row[0], "jt_id": uvc_id})
+    except Exception:
+        pass
+
+
 def init_db():
     """Create tables and seed initial data."""
     Base.metadata.create_all(bind=engine)
@@ -231,13 +294,16 @@ def init_db():
     _migrate_add_employment_type()
     _migrate_work_days_to_text()
     _migrate_add_sort_order()
+    _migrate_add_weekly_work_day_limit()
+    _migrate_split_data_job_type()
     db = SessionLocal()
     try:
         if db.query(JobType).count() == 0:
             seed_job_types = [
                 JobType(name="職人", color="#FF6B6B"),
                 JobType(name="サブ職人", color="#4DABF7"),
-                JobType(name="データ", color="#51CF66"),
+                JobType(name="lkデータ", color="#51CF66"),
+                JobType(name="uv/cデータ", color="#69DB7C"),
                 JobType(name="その他", color="#FFD43B"),
             ]
             db.add_all(seed_job_types)
@@ -248,18 +314,18 @@ def init_db():
             seed_data = [
                 ("部長",       "full_time", ["その他"]),
                 ("若生亜紀子", "full_time", ["その他"]),
-                ("和平映美",   "full_time", ["職人", "サブ職人", "データ", "その他"]),
+                ("和平映美",   "full_time", ["職人", "サブ職人", "lkデータ", "uv/cデータ", "その他"]),
                 ("岡崎智恵子", "full_time", ["職人"]),
-                ("川上朋子",   "dependent", ["データ", "その他"]),
-                ("植原ふみ代", "full_time", ["職人", "サブ職人", "データ", "その他"]),
-                ("尾崎廣子",   "dependent", ["データ", "その他"]),
-                ("酒向邦江",   "dependent", ["データ", "その他"]),
-                ("カンサ萌",   "dependent", ["データ", "その他"]),
+                ("川上朋子",   "dependent", ["lkデータ", "uv/cデータ", "その他"]),
+                ("植原ふみ代", "full_time", ["職人", "サブ職人", "lkデータ", "uv/cデータ", "その他"]),
+                ("尾崎廣子",   "dependent", ["lkデータ", "uv/cデータ", "その他"]),
+                ("酒向邦江",   "dependent", ["lkデータ", "uv/cデータ", "その他"]),
+                ("カンサ萌",   "dependent", ["lkデータ", "uv/cデータ", "その他"]),
                 ("秋山智子",   "dependent", ["その他"]),
-                ("石原圭子",   "full_time", ["データ", "その他"]),
-                ("工藤友里",   "full_time", ["データ", "その他"]),
-                ("近藤美佐子", "full_time", ["データ", "その他"]),
-                ("大野千絵美", "full_time", ["職人", "サブ職人", "データ", "その他"]),
+                ("石原圭子",   "full_time", ["lkデータ", "uv/cデータ", "その他"]),
+                ("工藤友里",   "full_time", ["lkデータ", "uv/cデータ", "その他"]),
+                ("近藤美佐子", "full_time", ["lkデータ", "uv/cデータ", "その他"]),
+                ("大野千絵美", "full_time", ["職人", "サブ職人", "lkデータ", "uv/cデータ", "その他"]),
             ]
             jt_map = {jt.name: jt.id for jt in db.query(JobType).all()}
             for idx, (name, emp_type, jt_names) in enumerate(seed_data):

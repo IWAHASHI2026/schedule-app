@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { CheckCircle, Globe } from "lucide-react";
 import {
   getEmployees, getJobTypes, getSchedules, getAssignments, getHolidays, getRequests,
-  updateAssignments, updateScheduleStatus,
+  updateAssignments, updateScheduleStatus, getJobTypeAbbr,
   type Employee, type JobType, type Schedule, type ShiftAssignment, type Holiday,
 } from "@/lib/api";
 
@@ -218,7 +218,7 @@ export default function SchedulePage() {
                               )
                             ) : (
                               <span style={{ color: a?.job_type_color || undefined }} className="font-bold text-[11px]">
-                                {a?.job_type_name?.charAt(0) || ""}
+                                {getJobTypeAbbr(a?.job_type_name)}
                                 {a?.work_type === "morning_half" && <span className="text-[8px] font-normal opacity-70">前</span>}
                                 {a?.work_type === "afternoon_half" && <span className="text-[8px] font-normal opacity-70">後</span>}
                               </span>

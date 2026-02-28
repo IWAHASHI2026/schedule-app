@@ -58,6 +58,7 @@ def get_report(month: str, db: Session = Depends(get_db)):
             total_work_days=total_work,
             total_days_off=total_off,
             requested_work_days=str(req.requested_work_days) if req and req.requested_work_days is not None else None,
+            weekly_work_day_limit=req.weekly_work_day_limit if req else None,
             job_type_counts=jt_counts,
         ))
         work_days_list.append(total_work)

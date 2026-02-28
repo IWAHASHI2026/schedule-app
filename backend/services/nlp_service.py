@@ -47,7 +47,7 @@ def parse_modification(input_text: str, current_summary: str, schedule_detail: s
   "type": "pin",
   "employee_name": "スタッフ名",
   "date": "YYYY-MM-DD",
-  "new_job_type": "職人" / "サブ職人" / "データ" / "その他" / "休み"
+  "new_job_type": "職人" / "サブ職人" / "lkデータ" / "uv/cデータ" / "その他" / "休み"
 }}
 
 ### タイプ2: adjust（集計的な変更）
@@ -55,14 +55,14 @@ def parse_modification(input_text: str, current_summary: str, schedule_detail: s
 {{
   "type": "adjust",
   "employee_name": "スタッフ名",
-  "job_type": "職人" / "サブ職人" / "データ" / "その他",
+  "job_type": "職人" / "サブ職人" / "lkデータ" / "uv/cデータ" / "その他",
   "action": "increase" / "decrease" / "set",
   "amount": 数値またはnull
 }}
 
 ## 重要なルール
 - employee_nameは現在のシフト情報に含まれるフルネームを出力してください。ユーザーが「植原」「大野」のように苗字だけで指定した場合、シフト情報からフルネーム（例: 「植原ふみ代」「大野千絵美」）を探して出力してください
-- 「サブ」→「サブ職人」、「データ」→「データ」、「職人」→「職人」のように正式名称にしてください
+- 「サブ」→「サブ職人」、「lkデータ」→「lkデータ」、「uvデータ」「uvcデータ」→「uv/cデータ」、「職人」→「職人」のように正式名称にしてください
 - 「休みにして」「休日にして」「オフにして」→ new_job_type は "休み"
 - 複数の指示がある場合、前の文脈で日付が言及されていれば、日付が省略された指示にもその日付を適用してください（例:「大野千絵美、3/5をその他に変更。植原をサブに変更」→ 両方とも3/5）
 - 指示された変更だけを出力してください。指示されていない変更は絶対に含めないでください

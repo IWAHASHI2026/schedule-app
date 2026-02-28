@@ -55,7 +55,8 @@ export default function ReportsPage() {
                       <th className="py-2 px-3 text-left">スタッフ</th>
                       <th className="py-2 px-3 text-center">出勤日数</th>
                       <th className="py-2 px-3 text-center">休日数</th>
-                      <th className="py-2 px-3 text-center border-r-2 border-gray-300">希望出勤</th>
+                      <th className="py-2 px-3 text-center">希望出勤</th>
+                      <th className="py-2 px-3 text-center border-r-2 border-gray-300">週間上限</th>
                       {allJobTypes.map((jt) => (
                         <th key={jt} className="py-2 px-3 text-center bg-muted/40">{jt}</th>
                       ))}
@@ -67,7 +68,8 @@ export default function ReportsPage() {
                         <td className="py-2 px-3 font-medium">{emp.employee_name}</td>
                         <td className="py-2 px-3 text-center">{emp.total_work_days}</td>
                         <td className="py-2 px-3 text-center">{emp.total_days_off}</td>
-                        <td className="py-2 px-3 text-center border-r-2 border-gray-300">{emp.requested_work_days === "max" ? "なるべく多く" : emp.requested_work_days ?? "-"}</td>
+                        <td className="py-2 px-3 text-center">{emp.requested_work_days === "max" ? "なるべく多く" : emp.requested_work_days != null ? `${emp.requested_work_days}日以内` : "-"}</td>
+                        <td className="py-2 px-3 text-center border-r-2 border-gray-300">{emp.weekly_work_day_limit != null ? `週${emp.weekly_work_day_limit}日以内` : "-"}</td>
                         {allJobTypes.map((jt) => (
                           <td key={jt} className="py-2 px-3 text-center bg-muted/40">{emp.job_type_counts[jt] || ""}</td>
                         ))}

@@ -54,6 +54,13 @@ export const reorderEmployees = (employee_ids: number[]) =>
 // ---- Job Types ----
 export const getJobTypes = () => request<JobType[]>("/job-types");
 
+export const getJobTypeAbbr = (name: string | null | undefined): string => {
+  if (!name) return "";
+  if (name === "lkデータ") return "Lデ";
+  if (name === "uv/cデータ") return "Uデ";
+  return name.charAt(0);
+};
+
 // ---- Shift Requests ----
 export interface RequestDetail {
   id: number;
@@ -67,6 +74,7 @@ export interface ShiftRequest {
   employee_name: string;
   target_month: string;
   requested_work_days: string | null;  // "1"-"23" or "max"
+  weekly_work_day_limit: number | null;
   note: string | null;
   details: RequestDetail[];
 }
@@ -87,6 +95,7 @@ export const upsertRequest = (data: {
   employee_id: number;
   target_month: string;
   requested_work_days?: string | null;  // "1"-"23" or "max"
+  weekly_work_day_limit?: number | null;
   note?: string | null;
   days_off: { date: string; period: string }[];
 }) => request<ShiftRequest>("/requests", { method: "POST", body: JSON.stringify(data) });
@@ -186,6 +195,7 @@ export interface EmployeeReport {
   total_work_days: number;
   total_days_off: number;
   requested_work_days: string | null;  // "1"-"23" or "max"
+  weekly_work_day_limit: number | null;
   job_type_counts: Record<string, number>;
 }
 

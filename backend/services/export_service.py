@@ -18,7 +18,8 @@ import os
 JOB_TYPE_COLORS = {
     "職人": "FF6B6B",
     "サブ職人": "4DABF7",
-    "データ": "51CF66",
+    "lkデータ": "51CF66",
+    "uv/cデータ": "69DB7C",
     "その他": "FFD43B",
 }
 
@@ -275,7 +276,8 @@ def generate_pdf(db: Session, month: str) -> bytes:
     jt_colors_rgb = {
         "職人": colors.Color(1.0, 0.42, 0.42),
         "サブ職人": colors.Color(0.3, 0.67, 0.97),
-        "データ": colors.Color(0.32, 0.81, 0.4),
+        "lkデータ": colors.Color(0.32, 0.81, 0.4),
+        "uv/cデータ": colors.Color(0.41, 0.86, 0.48),
         "その他": colors.Color(1.0, 0.83, 0.23),
     }
 

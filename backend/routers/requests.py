@@ -13,6 +13,7 @@ def _request_to_out(req: ShiftRequest) -> ShiftRequestOut:
         employee_name=req.employee.name if req.employee else "",
         target_month=req.target_month,
         requested_work_days=str(req.requested_work_days) if req.requested_work_days is not None else None,
+        weekly_work_day_limit=req.weekly_work_day_limit,
         note=req.note,
         details=[RequestDetailOut(id=d.id, date=d.date, period=d.period or "all_day") for d in req.details],
     )
@@ -79,6 +80,7 @@ def upsert_request(body: ShiftRequestCreate, db: Session = Depends(get_db)):
         employee_id=body.employee_id,
         target_month=body.target_month,
         requested_work_days=body.requested_work_days,
+        weekly_work_day_limit=body.weekly_work_day_limit,
         note=body.note,
     )
     db.add(req)

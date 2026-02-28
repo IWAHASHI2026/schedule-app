@@ -24,6 +24,7 @@ export default function RequestsPage() {
   const [selectedEmpId, setSelectedEmpId] = useState<string>("");
   const [selectedDaysOff, setSelectedDaysOff] = useState<Set<string>>(new Set());
   const [workDays, setWorkDays] = useState<string>("");
+  const [weeklyLimit, setWeeklyLimit] = useState<string>("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -69,6 +70,7 @@ export default function RequestsPage() {
     setSelectedEmpId(empId);
     setSelectedDaysOff(new Set());
     setWorkDays("");
+    setWeeklyLimit("");
     setNote("");
     if (!empId) return;
     try {
@@ -85,6 +87,7 @@ export default function RequestsPage() {
       }
       setSelectedDaysOff(keys);
       setWorkDays(req.requested_work_days || getDefaultWorkDays(empId));
+      setWeeklyLimit(req.weekly_work_day_limit != null ? String(req.weekly_work_day_limit) : "");
       setNote(req.note || "");
     } catch {
       // No existing request — apply default
@@ -100,6 +103,7 @@ export default function RequestsPage() {
         employee_id: parseInt(selectedEmpId),
         target_month: month,
         requested_work_days: workDays && workDays !== "__none__" ? workDays : null,
+        weekly_work_day_limit: weeklyLimit && weeklyLimit !== "__none__" ? parseInt(weeklyLimit) : null,
         note: note || null,
         days_off: (() => {
           const dateMap = new Map<string, Set<string>>();
@@ -262,12 +266,26 @@ export default function RequestsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">未選択</SelectItem>
-                      {Array.from({ length: 23 }, (_, i) => i + 1).map((n) => (
+                      <SelectItem value="max">なるべく多く</SelectItem>
+                      {Array.from({ length: 23 }, (_, i) => 23 - i).map((n) => (
                         <SelectItem key={n} value={String(n)}>
-                          {n}日
+                          {n}日以内
                         </SelectItem>
                       ))}
-                      <SelectItem value="max">なるべく多く</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>週間出勤上限</Label>
+                  <Select value={weeklyLimit} onValueChange={setWeeklyLimit}>
+                    <SelectTrigger className="mt-1 w-48">
+                      <SelectValue placeholder="設定なし" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">設定なし</SelectItem>
+                      <SelectItem value="4">週4日以内</SelectItem>
+                      <SelectItem value="3">週3日以内</SelectItem>
+                      <SelectItem value="2">週2日以内</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

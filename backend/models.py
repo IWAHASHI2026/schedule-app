@@ -47,6 +47,7 @@ class ShiftRequestCreate(BaseModel):
     employee_id: int
     target_month: str
     requested_work_days: Optional[str] = None  # "1"-"23" or "max"
+    weekly_work_day_limit: Optional[int] = None
     note: Optional[str] = None
     days_off: list[DayOffItem] = []
 
@@ -61,6 +62,7 @@ class ShiftRequestOut(BaseModel):
     employee_name: str = ""
     target_month: str
     requested_work_days: Optional[str] = None
+    weekly_work_day_limit: Optional[int] = None
     note: Optional[str] = None
     details: list[RequestDetailOut] = []
 
@@ -157,6 +159,7 @@ class EmployeeReportOut(BaseModel):
     total_work_days: float
     total_days_off: int
     requested_work_days: Optional[str] = None
+    weekly_work_day_limit: Optional[int] = None
     job_type_counts: dict[str, float] = {}
 
 class ReportOut(BaseModel):

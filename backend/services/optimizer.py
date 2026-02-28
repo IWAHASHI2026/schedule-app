@@ -6,15 +6,17 @@ Hard constraints:
          - Full day off (am+pm): employee cannot work
          - Half day off (am or pm only): employee can work with headcount 0.5
   HC-02: One job type per employee per day
-  HC-03: Daily required headcount per job type must be met (soft for データ/その他)
+  HC-03: Daily required headcount per job type must be met (soft for lkデータ/uv/cデータ/その他)
   HC-04: Only assign job types the employee is qualified for
   HC-05: No work on weekends/holidays
   HC-06: 職人・サブ職人 are each assigned exactly 1 person per working day
          (half-day workers are excluded from these roles)
+  HC-07: Weekly work day limit per employee (if set)
 
 Soft constraints (objective function):
-  SC-01: Minimize deviation from requested work days (weight 10)
-       - "max" = maximize work days (penalize non-work)
+  SC-01: Requested work days upper limit (hard constraint for numeric values)
+       - "max" = maximize work days (penalize non-work, soft)
+       - Numeric value = hard upper limit on total work days
        - Half day counts as 0.5 work days
   SC-03: Minimize unfairness in work days across employees (weight 5)
   SC-04: Minimize job type imbalance per employee (weight 1)
@@ -74,6 +76,7 @@ def generate_schedule(
     # Requested days off per employee (with period info)
     emp_off_periods: dict[int, dict[date, set[str]]] = {}  # e_id -> date -> {"am","pm"}
     emp_requested_work: dict[int, str | None] = {}  # "1"-"23" or "max" or None
+    emp_weekly_limit: dict[int, int | None] = {}  # e_id -> weekly limit or None
 
     for e_id in emp_ids:
         req = (
@@ -93,9 +96,11 @@ def generate_schedule(
                     off_periods[d.date].add(d.period)
             emp_off_periods[e_id] = off_periods
             emp_requested_work[e_id] = str(req.requested_work_days) if req.requested_work_days is not None else None
+            emp_weekly_limit[e_id] = req.weekly_work_day_limit
         else:
             emp_off_periods[e_id] = {}
             emp_requested_work[e_id] = None
+            emp_weekly_limit[e_id] = None
 
     # Derive full-day off set and half-day headcount factor
     emp_full_off: dict[int, set[date]] = {}  # dates with both am+pm off
@@ -189,6 +194,19 @@ def generate_schedule(
                     sum(x[e_id, d, j] for e_id in emp_ids if j in emp_job_types.get(e_id, [])) == 1
                 )
 
+    # HC-07: Weekly work day limit per employee
+    from collections import defaultdict
+    weeks: dict[tuple[int, int], list[date]] = defaultdict(list)
+    for d in working_dates:
+        iso_year, iso_week, _ = d.isocalendar()
+        weeks[(iso_year, iso_week)].append(d)
+
+    for e_id in emp_ids:
+        wlimit = emp_weekly_limit.get(e_id)
+        if wlimit is not None:
+            for week_key, week_dates in weeks.items():
+                model.add(sum(work[e_id, d] for d in week_dates) <= wlimit)
+
     # HC-03: Meet daily requirements (soft constraint with high penalty)
     # Using integer scaling: multiply by 2 for 0.5 support
     # Half-day workers contribute 1 unit (0.5), full-day workers contribute 2 units (1.0)
@@ -233,7 +251,9 @@ def generate_schedule(
 
     objective_terms = []
 
-    # SC-01: Deviation from requested work days (scaled by 2)
+    # SC-01: Requested work days
+    # - "max": soft constraint to maximize work days
+    # - numeric: hard upper limit constraint
     for e_id in emp_ids:
         rw = emp_requested_work.get(e_id)
         if rw == "max":
@@ -242,12 +262,9 @@ def generate_schedule(
             model.add(not_work_count == scaled_total - emp_total_work[e_id])
             objective_terms.append(not_work_count * 10)
         elif rw is not None:
-            # Target specific number of work days (scaled by 2)
+            # Hard upper limit (scaled by 2)
             target = int(rw) * 2
-            dev = model.new_int_var(0, scaled_total, f"dev_work_{e_id}")
-            model.add(dev >= emp_total_work[e_id] - target)
-            model.add(dev >= target - emp_total_work[e_id])
-            objective_terms.append(dev * 10)
+            model.add(emp_total_work[e_id] <= target)
 
     # SC-03: Fairness - minimize max - min work days (scaled by 2)
     if len(emp_ids) > 1:
@@ -279,7 +296,7 @@ def generate_schedule(
             model.add(jc_diff == max_jc - min_jc)
             objective_terms.append(jc_diff * 1)
 
-    # SC-05: Priority cost - prefer lower job_type_id (1=職人, 2=サブ, 3=データ, 4=その他)
+    # SC-05: Priority cost - prefer lower job_type_id (1=職人, 2=サブ, 3=lkデータ, 4=uv/cデータ, 5=その他)
     priority_weight = 2
     for e_id in emp_ids:
         for d in working_dates:
