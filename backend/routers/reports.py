@@ -29,8 +29,14 @@ def _generate_comment(
             parts.append(f"全{total_working_dates}営業日出勤")
         else:
             gap = total_working_dates - total_work
-            gap_s = int(gap) if gap == int(gap) else gap
-            parts.append(f"{total_working_dates}営業日中{int(total_work) if total_work == int(total_work) else total_work}日出勤（調整休{gap_s}日）")
+            # 希望休（営業日分）を差し引いた真の調整休を計算
+            adjusted_gap = gap - num_requested_off_days
+            tw = int(total_work) if total_work == int(total_work) else total_work
+            if adjusted_gap > 0:
+                ag_s = int(adjusted_gap) if adjusted_gap == int(adjusted_gap) else adjusted_gap
+                parts.append(f"{total_working_dates}営業日中{tw}日出勤（調整休{ag_s}日）")
+            else:
+                parts.append(f"{total_working_dates}営業日中{tw}日出勤")
     elif requested_work_days is not None:
         limit = int(requested_work_days)
         tw = int(total_work) if total_work == int(total_work) else total_work
@@ -107,13 +113,14 @@ def get_report(month: str, db: Session = Depends(get_db)):
         rw = str(req.requested_work_days) if req and req.requested_work_days is not None else None
         wl = req.weekly_work_day_limit if req else None
 
-        # Count requested off days (distinct dates)
+        # Count requested off days on working days only (distinct dates)
+        # 祝日・土日の希望休は営業日数に影響しないためカウントしない
         num_off_days = 0
         if req:
             details = db.query(RequestDetail).filter(
                 RequestDetail.shift_request_id == req.id
             ).all()
-            num_off_days = len(set(d.date for d in details))
+            num_off_days = len(set(d.date for d in details if not is_non_working_day(d.date)))
 
         comment = _generate_comment(
             total_work, total_off, rw, wl,
