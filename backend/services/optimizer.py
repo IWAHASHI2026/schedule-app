@@ -18,7 +18,7 @@ Soft constraints (objective function):
        - "max" = maximize work days (penalize non-work, soft)
        - Numeric value = hard upper limit on total work days
        - Half day counts as 0.5 work days
-  SC-03: Minimize unfairness in work days across employees (weight 5)
+  SC-03: Minimize unfairness in work days within same-category groups (weight 5)
   SC-04: Minimize job type imbalance per employee — pairwise balance (weight 3 per pair)
   SC-05: Prefer higher-priority job types (lower sort_order = higher priority, weight 1)
   SC-06: Prefer full-time employees over dependent (weight 3)
@@ -272,15 +272,24 @@ def generate_schedule(
             target = int(rw) * 2
             model.add(emp_total_work[e_id] <= target)
 
-    # SC-03: Fairness - minimize max - min work days (scaled by 2)
-    if len(emp_ids) > 1:
-        max_work = model.new_int_var(0, scaled_total, "max_work")
-        min_work = model.new_int_var(0, scaled_total, "min_work")
-        model.add_max_equality(max_work, [emp_total_work[e_id] for e_id in emp_ids])
-        model.add_min_equality(min_work, [emp_total_work[e_id] for e_id in emp_ids])
-        fairness_diff = model.new_int_var(0, scaled_total, "fairness_diff")
-        model.add(fairness_diff == max_work - min_work)
-        objective_terms.append(fairness_diff * 5)
+    # SC-03: Group-based fairness — minimize max-min work days within
+    # employees that share the same requested_work_days category.
+    # Global comparison is meaningless when targets differ widely
+    # (e.g. "max" 20 days vs "12日以内" 11 days).
+    from collections import defaultdict as _defaultdict
+    fairness_groups: dict[str | None, list[int]] = _defaultdict(list)
+    for e_id in emp_ids:
+        fairness_groups[emp_requested_work.get(e_id)].append(e_id)
+    for group_key, group_eids in fairness_groups.items():
+        if len(group_eids) < 2:
+            continue
+        grp_max = model.new_int_var(0, scaled_total, f"fair_max_{group_key}")
+        grp_min = model.new_int_var(0, scaled_total, f"fair_min_{group_key}")
+        model.add_max_equality(grp_max, [emp_total_work[e_id] for e_id in group_eids])
+        model.add_min_equality(grp_min, [emp_total_work[e_id] for e_id in group_eids])
+        grp_diff = model.new_int_var(0, scaled_total, f"fair_diff_{group_key}")
+        model.add(grp_diff == grp_max - grp_min)
+        objective_terms.append(grp_diff * 5)
 
     # SC-04: Job type balance per employee — pairwise (weight 3 per pair)
     # For each pair of job types an employee can do, penalize the absolute
