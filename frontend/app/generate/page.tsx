@@ -261,6 +261,9 @@ export default function GeneratePage() {
                         </th>
                       );
                     })}
+                    <th className="sticky right-0 bg-card z-10 px-2 py-1 border text-center min-w-[36px]">
+                      合計
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -310,6 +313,9 @@ export default function GeneratePage() {
                           </td>
                         );
                       })}
+                      <td className="sticky right-0 bg-card z-10 px-2 py-1 border text-center text-[10px] font-bold">
+                        {assignments.filter((a) => a.employee_id === emp.id && a.work_type !== "off").reduce((s, a) => s + a.headcount_value, 0) || ""}
+                      </td>
                     </tr>
                   ))}
                   {/* 職種別人数 */}
@@ -326,6 +332,7 @@ export default function GeneratePage() {
                           </td>
                         );
                       })}
+                      <td className="sticky right-0 bg-muted/30 z-10 px-1 py-1 border text-center text-[10px]" />
                     </tr>
                   ))}
                   {/* 日合計 */}
@@ -339,6 +346,7 @@ export default function GeneratePage() {
                         </td>
                       );
                     })}
+                    <td className="sticky right-0 bg-muted/60 z-10 px-1 py-1 border text-center text-[10px]" />
                   </tr>
                 </tbody>
               </table>

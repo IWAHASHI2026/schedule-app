@@ -250,16 +250,19 @@ def _migrate_add_job_type_sort_order():
                 conn.execute(sa_text(
                     "ALTER TABLE job_types ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
                 ))
-        # Always ensure correct sort_order values by name
-        desired_order = {
-            "職人": 1, "サブ職人": 2, "lkデータ": 3,
-            "uv/cデータ": 4, "その他": 5,
+        # Always ensure correct sort_order and color values by name
+        desired = {
+            "職人":      (1, "#FF6B6B"),
+            "サブ職人":  (2, "#4DABF7"),
+            "lkデータ":  (3, "#51CF66"),
+            "uv/cデータ": (4, "#CC5DE8"),
+            "その他":    (5, "#FFD43B"),
         }
         with engine.begin() as conn:
-            for name, order in desired_order.items():
+            for name, (order, color) in desired.items():
                 conn.execute(sa_text(
-                    "UPDATE job_types SET sort_order = :order WHERE name = :name"
-                ), {"order": order, "name": name})
+                    "UPDATE job_types SET sort_order = :order, color = :color WHERE name = :name"
+                ), {"order": order, "color": color, "name": name})
     except Exception:
         pass
 
@@ -292,7 +295,7 @@ def _migrate_split_data_job_type():
 
             # Add uv/cデータ
             conn.execute(sa_text(
-                "INSERT INTO job_types (name, color) VALUES ('uv/cデータ', '#69DB7C')"
+                "INSERT INTO job_types (name, color) VALUES ('uv/cデータ', '#CC5DE8')"
             ))
             uvc_row = conn.execute(sa_text(
                 "SELECT id FROM job_types WHERE name = 'uv/cデータ'"
@@ -330,7 +333,7 @@ def init_db():
                 JobType(name="職人", color="#FF6B6B", sort_order=1),
                 JobType(name="サブ職人", color="#4DABF7", sort_order=2),
                 JobType(name="lkデータ", color="#51CF66", sort_order=3),
-                JobType(name="uv/cデータ", color="#69DB7C", sort_order=4),
+                JobType(name="uv/cデータ", color="#CC5DE8", sort_order=4),
                 JobType(name="その他", color="#FFD43B", sort_order=5),
             ]
             db.add_all(seed_job_types)

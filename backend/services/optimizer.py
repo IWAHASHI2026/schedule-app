@@ -19,8 +19,8 @@ Soft constraints (objective function):
        - Numeric value = hard upper limit on total work days
        - Half day counts as 0.5 work days
   SC-03: Minimize unfairness in work days across employees (weight 5)
-  SC-04: Minimize job type imbalance per employee (weight 1)
-  SC-05: Prefer higher-priority job types (lower ID = higher priority, weight 2)
+  SC-04: Minimize job type imbalance per employee (weight 8)
+  SC-05: Prefer higher-priority job types (lower sort_order = higher priority, weight 2)
   SC-06: Prefer full-time employees over dependent (weight 3)
   SC-07: Avoid same job type on consecutive working days per employee (weight 3)
 """
@@ -72,6 +72,12 @@ def generate_schedule(
     )
     if not all_job_type_ids:
         raise ValueError("No job types assigned to any employee")
+
+    # Job type sort_order mapping (for priority constraint)
+    from database import JobType as JT
+    jt_sort_order: dict[int, int] = {
+        jt.id: jt.sort_order for jt in db.query(JT).all()
+    }
 
     # Requested days off per employee (with period info)
     emp_off_periods: dict[int, dict[date, set[str]]] = {}  # e_id -> date -> {"am","pm"}
@@ -276,7 +282,9 @@ def generate_schedule(
         model.add(fairness_diff == max_work - min_work)
         objective_terms.append(fairness_diff * 5)
 
-    # SC-04: Job type balance per employee
+    # SC-04: Job type balance per employee (weight 8)
+    # Penalize the difference between the most-assigned and least-assigned job types
+    # per employee, encouraging a more even distribution across all qualified types.
     for e_id in emp_ids:
         allowed = emp_job_types.get(e_id, [])
         if len(allowed) <= 1:
@@ -294,14 +302,14 @@ def generate_schedule(
             model.add_min_equality(min_jc, job_counts)
             jc_diff = model.new_int_var(0, total_working_dates, f"jc_diff_{e_id}")
             model.add(jc_diff == max_jc - min_jc)
-            objective_terms.append(jc_diff * 1)
+            objective_terms.append(jc_diff * 8)
 
-    # SC-05: Priority cost - prefer lower job_type_id (1=職人, 2=サブ, 3=lkデータ, 4=uv/cデータ, 5=その他)
+    # SC-05: Priority cost - prefer lower sort_order (1=職人, 2=サブ, 3=lkデータ, 4=uv/cデータ, 5=その他)
     priority_weight = 2
     for e_id in emp_ids:
         for d in working_dates:
             for j in all_job_type_ids:
-                objective_terms.append(x[e_id, d, j] * j * priority_weight)
+                objective_terms.append(x[e_id, d, j] * jt_sort_order.get(j, j) * priority_weight)
 
     # SC-06: Prefer full-time employees over dependent
     for e_id in emp_ids:
