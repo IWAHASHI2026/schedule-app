@@ -5,32 +5,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { getReport, type Report } from "@/lib/api";
+import { getReport, getJobTypes, type Report, type JobType } from "@/lib/api";
 
 export default function ReportsPage() {
   const today = new Date();
   const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 2).padStart(2, "0")}`;
   const [month, setMonth] = useState(defaultMonth);
   const [report, setReport] = useState<Report | null>(null);
+  const [jobTypes, setJobTypes] = useState<JobType[]>([]);
 
   const load = async () => {
-    const r = await getReport(month);
+    const [r, jts] = await Promise.all([getReport(month), getJobTypes()]);
     setReport(r);
+    setJobTypes(jts);
   };
 
   useEffect(() => { load(); }, [month]);
 
   const maxWork = report ? Math.max(...report.employees.map((e) => e.total_work_days), 1) : 1;
 
-  // 全従業員から職種名を集約（順序を保持）
-  const allJobTypes: string[] = [];
-  if (report) {
-    for (const emp of report.employees) {
-      for (const jt of Object.keys(emp.job_type_counts)) {
-        if (!allJobTypes.includes(jt)) allJobTypes.push(jt);
-      }
-    }
-  }
+  // 仕事種類マスタの順序で表示（ID順 = 職人, サブ職人, lkデータ, uv/cデータ, その他）
+  const allJobTypes = jobTypes.map((jt) => jt.name);
 
   return (
     <div className="space-y-6">
