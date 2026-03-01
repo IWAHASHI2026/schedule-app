@@ -20,7 +20,7 @@ def get_report(month: str, db: Session = Depends(get_db)):
         return ReportOut(month=month)
 
     employees = db.query(Employee).order_by(Employee.sort_order).all()
-    job_types = db.query(JobType).order_by(JobType.id).all()
+    job_types = db.query(JobType).order_by(JobType.sort_order).all()
     jt_map = {jt.id: jt.name for jt in job_types}
 
     assignments = (

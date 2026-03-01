@@ -24,7 +24,7 @@ export default function ReportsPage() {
 
   const maxWork = report ? Math.max(...report.employees.map((e) => e.total_work_days), 1) : 1;
 
-  // 仕事種類マスタの順序で表示（ID順 = 職人, サブ職人, lkデータ, uv/cデータ, その他）
+  // 仕事種類マスタの順序で表示（sort_order順 = 職人, サブ職人, lkデータ, uv/cデータ, その他）
   const allJobTypes = jobTypes.map((jt) => jt.name);
 
   return (

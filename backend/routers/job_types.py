@@ -10,5 +10,5 @@ router = APIRouter(prefix="/api/job-types", tags=["job_types"])
 def list_job_types(db: Session = Depends(get_db)):
     return [
         JobTypeOut(id=jt.id, name=jt.name, color=jt.color)
-        for jt in db.query(JobType).order_by(JobType.id).all()
+        for jt in db.query(JobType).order_by(JobType.sort_order).all()
     ]

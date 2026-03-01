@@ -69,6 +69,7 @@ class JobType(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(Text, nullable=False)
     color = Column(Text)
+    sort_order = Column(Integer, nullable=False, default=0)
 
 
 class EmployeeJobType(Base):
@@ -238,6 +239,31 @@ def _migrate_add_weekly_work_day_limit():
         pass  # Table may not exist yet
 
 
+def _migrate_add_job_type_sort_order():
+    """Add sort_order column to job_types and set correct display order."""
+    try:
+        columns = _get_existing_columns("job_types")
+        if not columns:
+            return
+        if "sort_order" not in columns:
+            with engine.begin() as conn:
+                conn.execute(sa_text(
+                    "ALTER TABLE job_types ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                ))
+        # Always ensure correct sort_order values by name
+        desired_order = {
+            "職人": 1, "サブ職人": 2, "lkデータ": 3,
+            "uv/cデータ": 4, "その他": 5,
+        }
+        with engine.begin() as conn:
+            for name, order in desired_order.items():
+                conn.execute(sa_text(
+                    "UPDATE job_types SET sort_order = :order WHERE name = :name"
+                ), {"order": order, "name": name})
+    except Exception:
+        pass
+
+
 def _migrate_split_data_job_type():
     """Rename 'データ' to 'lkデータ' and add 'uv/cデータ' job type.
     Auto-assign 'uv/cデータ' to all employees who had 'データ'."""
@@ -296,15 +322,16 @@ def init_db():
     _migrate_add_sort_order()
     _migrate_add_weekly_work_day_limit()
     _migrate_split_data_job_type()
+    _migrate_add_job_type_sort_order()
     db = SessionLocal()
     try:
         if db.query(JobType).count() == 0:
             seed_job_types = [
-                JobType(name="職人", color="#FF6B6B"),
-                JobType(name="サブ職人", color="#4DABF7"),
-                JobType(name="lkデータ", color="#51CF66"),
-                JobType(name="uv/cデータ", color="#69DB7C"),
-                JobType(name="その他", color="#FFD43B"),
+                JobType(name="職人", color="#FF6B6B", sort_order=1),
+                JobType(name="サブ職人", color="#4DABF7", sort_order=2),
+                JobType(name="lkデータ", color="#51CF66", sort_order=3),
+                JobType(name="uv/cデータ", color="#69DB7C", sort_order=4),
+                JobType(name="その他", color="#FFD43B", sort_order=5),
             ]
             db.add_all(seed_job_types)
             db.commit()

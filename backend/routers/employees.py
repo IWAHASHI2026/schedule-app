@@ -15,7 +15,7 @@ def _employee_to_out(emp: Employee) -> EmployeeOut:
         sort_order=emp.sort_order,
         job_types=[
             JobTypeOut(id=ejt.job_type.id, name=ejt.job_type.name, color=ejt.job_type.color)
-            for ejt in sorted(emp.job_types, key=lambda ejt: ejt.job_type.id)
+            for ejt in sorted(emp.job_types, key=lambda ejt: ejt.job_type.sort_order)
         ],
     )
 
