@@ -19,10 +19,10 @@ Soft constraints (objective function):
        - Numeric value = hard upper limit on total work days
        - Half day counts as 0.5 work days
   SC-03: Minimize unfairness in work days across employees (weight 5)
-  SC-04: Minimize job type imbalance per employee (weight 8)
-  SC-05: Prefer higher-priority job types (lower sort_order = higher priority, weight 2)
+  SC-04: Minimize job type imbalance per employee — pairwise balance (weight 3 per pair)
+  SC-05: Prefer higher-priority job types (lower sort_order = higher priority, weight 1)
   SC-06: Prefer full-time employees over dependent (weight 3)
-  SC-07: Avoid same job type on consecutive working days per employee (weight 3)
+  SC-07: Avoid same job type on consecutive working days per employee (weight 5)
 """
 
 from ortools.sat.python import cp_model
@@ -282,30 +282,29 @@ def generate_schedule(
         model.add(fairness_diff == max_work - min_work)
         objective_terms.append(fairness_diff * 5)
 
-    # SC-04: Job type balance per employee (weight 8)
-    # Penalize the difference between the most-assigned and least-assigned job types
-    # per employee, encouraging a more even distribution across all qualified types.
+    # SC-04: Job type balance per employee — pairwise (weight 3 per pair)
+    # For each pair of job types an employee can do, penalize the absolute
+    # difference in assignment counts.  This pushes ALL types toward equal
+    # frequency, not just the extreme max/min pair.
     for e_id in emp_ids:
         allowed = emp_job_types.get(e_id, [])
         if len(allowed) <= 1:
             continue
-        job_counts = []
+        job_counts: dict[int, cp_model.IntVar] = {}
         for j in allowed:
             jc = model.new_int_var(0, total_working_dates, f"jc_{e_id}_{j}")
             model.add(jc == sum(x[e_id, d, j] for d in working_dates))
-            job_counts.append(jc)
-        # Minimize max - min among job counts
-        if len(job_counts) >= 2:
-            max_jc = model.new_int_var(0, total_working_dates, f"max_jc_{e_id}")
-            min_jc = model.new_int_var(0, total_working_dates, f"min_jc_{e_id}")
-            model.add_max_equality(max_jc, job_counts)
-            model.add_min_equality(min_jc, job_counts)
-            jc_diff = model.new_int_var(0, total_working_dates, f"jc_diff_{e_id}")
-            model.add(jc_diff == max_jc - min_jc)
-            objective_terms.append(jc_diff * 8)
+            job_counts[j] = jc
+        for i in range(len(allowed)):
+            for k in range(i + 1, len(allowed)):
+                j1, j2 = allowed[i], allowed[k]
+                diff = model.new_int_var(0, total_working_dates, f"jcdiff_{e_id}_{j1}_{j2}")
+                model.add(diff >= job_counts[j1] - job_counts[j2])
+                model.add(diff >= job_counts[j2] - job_counts[j1])
+                objective_terms.append(diff * 3)
 
     # SC-05: Priority cost - prefer lower sort_order (1=職人, 2=サブ, 3=lkデータ, 4=uv/cデータ, 5=その他)
-    priority_weight = 2
+    priority_weight = 1
     for e_id in emp_ids:
         for d in working_dates:
             for j in all_job_type_ids:
@@ -317,7 +316,7 @@ def generate_schedule(
             for d in working_dates:
                 objective_terms.append(work[e_id, d] * 3)
 
-    # SC-07: Avoid same job type on consecutive working days
+    # SC-07: Avoid same job type on consecutive working days (weight 5)
     for e_id in emp_ids:
         allowed = emp_job_types.get(e_id, [])
         if len(allowed) <= 1:
@@ -328,7 +327,7 @@ def generate_schedule(
             for j in allowed:
                 consec = model.new_bool_var(f"consec_{e_id}_{d1}_{j}")
                 model.add(consec >= x[e_id, d1, j] + x[e_id, d2, j] - 1)
-                objective_terms.append(consec * 3)
+                objective_terms.append(consec * 5)
 
     # Penalty for requirement shortages (very high weight to prioritize meeting requirements)
     for sv in shortage_vars:
