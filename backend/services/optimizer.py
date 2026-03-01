@@ -22,6 +22,8 @@ Soft constraints (objective function):
   SC-05: Prefer higher-priority job types (lower sort_order = higher priority, weight 1)
   SC-06: Prefer full-time employees over dependent (weight 3)
   SC-07: Avoid same job type on consecutive working days per employee (weight 5)
+  SC-08: Cross-employee job type fairness within same qualification group (weight 2)
+         — employees with identical qualification sets should get similar job type counts
 """
 
 from ortools.sat.python import cp_model
@@ -275,15 +277,20 @@ def generate_schedule(
     # For each pair of job types an employee can do, penalize the absolute
     # difference in assignment counts.  This pushes ALL types toward equal
     # frequency, not just the extreme max/min pair.
+    # Job count variables are shared with SC-08 (cross-employee fairness).
+    emp_job_counts: dict[int, dict[int, cp_model.IntVar]] = {}
     for e_id in emp_ids:
         allowed = emp_job_types.get(e_id, [])
-        if len(allowed) <= 1:
+        if not allowed:
             continue
         job_counts: dict[int, cp_model.IntVar] = {}
         for j in allowed:
             jc = model.new_int_var(0, total_working_dates, f"jc_{e_id}_{j}")
             model.add(jc == sum(x[e_id, d, j] for d in working_dates))
             job_counts[j] = jc
+        emp_job_counts[e_id] = job_counts
+        if len(allowed) <= 1:
+            continue
         for i in range(len(allowed)):
             for k in range(i + 1, len(allowed)):
                 j1, j2 = allowed[i], allowed[k]
@@ -291,6 +298,30 @@ def generate_schedule(
                 model.add(diff >= job_counts[j1] - job_counts[j2])
                 model.add(diff >= job_counts[j2] - job_counts[j1])
                 objective_terms.append(diff * 3)
+
+    # SC-08: Cross-employee job type fairness within same qualification group (weight 2)
+    # Group employees by their sorted set of qualified job type IDs.
+    # Within each group, for every pair of employees and every shared job type,
+    # penalize the absolute difference in assignment counts.
+    from itertools import combinations
+    qual_groups: dict[tuple[int, ...], list[int]] = {}
+    for e_id in emp_ids:
+        key = tuple(sorted(emp_job_types.get(e_id, [])))
+        if not key:
+            continue
+        qual_groups.setdefault(key, []).append(e_id)
+    for qual_key, group_eids in qual_groups.items():
+        if len(group_eids) <= 1:
+            continue
+        for e1, e2 in combinations(group_eids, 2):
+            for j in qual_key:
+                if j in emp_job_counts.get(e1, {}) and j in emp_job_counts.get(e2, {}):
+                    diff = model.new_int_var(
+                        0, total_working_dates, f"sc08_{e1}_{e2}_{j}"
+                    )
+                    model.add(diff >= emp_job_counts[e1][j] - emp_job_counts[e2][j])
+                    model.add(diff >= emp_job_counts[e2][j] - emp_job_counts[e1][j])
+                    objective_terms.append(diff * 2)
 
     # SC-05: Priority cost - prefer lower sort_order (1=職人, 2=サブ, 3=lkデータ, 4=uv/cデータ, 5=その他)
     priority_weight = 1
