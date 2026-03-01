@@ -161,13 +161,11 @@ class EmployeeReportOut(BaseModel):
     requested_work_days: Optional[str] = None
     weekly_work_day_limit: Optional[int] = None
     job_type_counts: dict[str, float] = {}
+    comment: str = ""
 
 class ReportOut(BaseModel):
     month: str
     employees: list[EmployeeReportOut] = []
-    fairness_max: float = 0
-    fairness_min: float = 0
-    fairness_diff: float = 0
 
 
 # ---- Holidays ----

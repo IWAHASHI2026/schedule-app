@@ -1,10 +1,58 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from database import get_db, Schedule, ShiftAssignment, Employee, ShiftRequest, JobType
+from database import (
+    get_db, Schedule, ShiftAssignment, Employee, ShiftRequest,
+    RequestDetail, JobType,
+)
 from models import ReportOut, EmployeeReportOut
 from routers.holidays import is_non_working_day
+from datetime import date
+import calendar
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
+
+
+def _generate_comment(
+    total_work: float,
+    total_off: int,
+    requested_work_days: str | None,
+    weekly_work_day_limit: int | None,
+    num_requested_off_days: int,
+    total_working_dates: int,
+) -> str:
+    """スタッフごとの希望充足コメントを生成する。"""
+    parts: list[str] = []
+
+    # 希望出勤 vs 実績
+    if requested_work_days == "max":
+        if total_work >= total_working_dates:
+            parts.append(f"全{total_working_dates}営業日出勤")
+        else:
+            gap = total_working_dates - total_work
+            gap_s = int(gap) if gap == int(gap) else gap
+            parts.append(f"{total_working_dates}営業日中{int(total_work) if total_work == int(total_work) else total_work}日出勤（調整休{gap_s}日）")
+    elif requested_work_days is not None:
+        limit = int(requested_work_days)
+        tw = int(total_work) if total_work == int(total_work) else total_work
+        if total_work >= limit:
+            parts.append(f"上限{limit}日に対し{tw}日出勤（達成）")
+        else:
+            diff = limit - total_work
+            diff_s = int(diff) if diff == int(diff) else diff
+            parts.append(f"上限{limit}日に対し{tw}日出勤（{diff_s}日余裕）")
+    else:
+        tw = int(total_work) if total_work == int(total_work) else total_work
+        parts.append(f"{tw}日出勤（希望未設定）")
+
+    # 週間上限
+    if weekly_work_day_limit is not None:
+        parts.append(f"週{weekly_work_day_limit}日制約あり")
+
+    # 希望休
+    if num_requested_off_days > 0:
+        parts.append(f"希望休{num_requested_off_days}日反映済")
+
+    return "。".join(parts)
 
 
 @router.get("", response_model=ReportOut)
@@ -29,8 +77,13 @@ def get_report(month: str, db: Session = Depends(get_db)):
         .all()
     )
 
+    # Count total working dates in the month
+    year, mon = map(int, month.split("-"))
+    days_in_month = calendar.monthrange(year, mon)[1]
+    all_dates = [date(year, mon, d) for d in range(1, days_in_month + 1)]
+    total_working_dates = sum(1 for d in all_dates if not is_non_working_day(d))
+
     emp_reports = []
-    work_days_list = []
 
     for emp in employees:
         emp_assignments = [a for a in assignments if a.employee_id == emp.id]
@@ -51,25 +104,34 @@ def get_report(month: str, db: Session = Depends(get_db)):
             .filter(ShiftRequest.employee_id == emp.id, ShiftRequest.target_month == month)
             .first()
         )
+        rw = str(req.requested_work_days) if req and req.requested_work_days is not None else None
+        wl = req.weekly_work_day_limit if req else None
+
+        # Count requested off days (distinct dates)
+        num_off_days = 0
+        if req:
+            details = db.query(RequestDetail).filter(
+                RequestDetail.shift_request_id == req.id
+            ).all()
+            num_off_days = len(set(d.date for d in details))
+
+        comment = _generate_comment(
+            total_work, total_off, rw, wl,
+            num_off_days, total_working_dates,
+        )
 
         emp_reports.append(EmployeeReportOut(
             employee_id=emp.id,
             employee_name=emp.name,
             total_work_days=total_work,
             total_days_off=total_off,
-            requested_work_days=str(req.requested_work_days) if req and req.requested_work_days is not None else None,
-            weekly_work_day_limit=req.weekly_work_day_limit if req else None,
+            requested_work_days=rw,
+            weekly_work_day_limit=wl,
             job_type_counts=jt_counts,
+            comment=comment,
         ))
-        work_days_list.append(total_work)
-
-    fairness_max = max(work_days_list) if work_days_list else 0
-    fairness_min = min(work_days_list) if work_days_list else 0
 
     return ReportOut(
         month=month,
         employees=emp_reports,
-        fairness_max=fairness_max,
-        fairness_min=fairness_min,
-        fairness_diff=fairness_max - fairness_min,
     )

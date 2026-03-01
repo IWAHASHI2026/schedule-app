@@ -197,14 +197,12 @@ export interface EmployeeReport {
   requested_work_days: string | null;  // "1"-"23" or "max"
   weekly_work_day_limit: number | null;
   job_type_counts: Record<string, number>;
+  comment: string;
 }
 
 export interface Report {
   month: string;
   employees: EmployeeReport[];
-  fairness_max: number;
-  fairness_min: number;
-  fairness_diff: number;
 }
 
 export const getReport = (month: string) => request<Report>(`/reports?month=${month}`);

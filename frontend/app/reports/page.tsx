@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -21,8 +20,6 @@ export default function ReportsPage() {
   };
 
   useEffect(() => { load(); }, [month]);
-
-  const maxWork = report ? Math.max(...report.employees.map((e) => e.total_work_days), 1) : 1;
 
   // 仕事種類マスタの順序で表示（sort_order順 = 職人, サブ職人, lkデータ, uv/cデータ, その他）
   const allJobTypes = jobTypes.map((jt) => jt.name);
@@ -78,28 +75,14 @@ export default function ReportsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">出勤日数の公平性</CardTitle>
+              <CardTitle className="text-lg">希望充足コメント</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                <div className="flex gap-4 text-sm text-muted-foreground mb-4">
-                  <span>最多: {report.fairness_max}日</span>
-                  <span>最少: {report.fairness_min}日</span>
-                  <span>差: {report.fairness_diff}日</span>
-                </div>
+              <div className="space-y-1.5">
                 {report.employees.map((emp) => (
-                  <div key={emp.employee_id} className="flex items-center gap-3">
-                    <span className="w-24 text-sm truncate">{emp.employee_name}</span>
-                    <div className="flex-1 bg-muted rounded-full h-6 relative">
-                      <div
-                        className="bg-primary h-6 rounded-full flex items-center justify-end pr-2"
-                        style={{ width: `${(emp.total_work_days / maxWork) * 100}%` }}
-                      >
-                        <span className="text-xs text-primary-foreground font-medium">
-                          {emp.total_work_days}
-                        </span>
-                      </div>
-                    </div>
+                  <div key={emp.employee_id} className="flex gap-2 text-sm">
+                    <span className="w-28 shrink-0 font-medium">{emp.employee_name}</span>
+                    <span className="text-muted-foreground">{emp.comment}</span>
                   </div>
                 ))}
               </div>
