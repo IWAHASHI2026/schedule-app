@@ -6,7 +6,7 @@ Hard constraints:
          - Full day off (am+pm): employee cannot work
          - Half day off (am or pm only): employee can work with headcount 0.5
   HC-02: One job type per employee per day
-  HC-03: Daily required headcount per job type must be met (soft for lkデータ/uv/cデータ/その他)
+  HC-03: Daily required headcount per job type must be met (soft for lkデータ/uv/cpデータ/手紙/その他)
   HC-04: Only assign job types the employee is qualified for
   HC-05: No work on weekends/holidays
   HC-06: 職人・サブ職人 are each assigned exactly 1 person per working day
@@ -323,7 +323,7 @@ def generate_schedule(
                     model.add(diff >= emp_job_counts[e2][j] - emp_job_counts[e1][j])
                     objective_terms.append(diff * 2)
 
-    # SC-05: Priority cost - prefer lower sort_order (1=職人, 2=サブ, 3=lkデータ, 4=uv/cデータ, 5=その他)
+    # SC-05: Priority cost - prefer lower sort_order (1=職人, 2=サブ, 3=lkデータ, 4=uv/cpデータ, 5=手紙, 6=その他)
     priority_weight = 1
     for e_id in emp_ids:
         for d in working_dates:

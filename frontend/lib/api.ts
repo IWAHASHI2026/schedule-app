@@ -57,7 +57,8 @@ export const getJobTypes = () => request<JobType[]>("/job-types");
 export const getJobTypeAbbr = (name: string | null | undefined): string => {
   if (!name) return "";
   if (name === "lkデータ") return "Lデ";
-  if (name === "uv/cデータ") return "Uデ";
+  if (name === "uv/cpデータ") return "Uデ";
+  if (name === "手紙") return "手";
   return name.charAt(0);
 };
 

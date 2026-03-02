@@ -252,11 +252,12 @@ def _migrate_add_job_type_sort_order():
                 ))
         # Always ensure correct sort_order and color values by name
         desired = {
-            "職人":      (1, "#FF6B6B"),
-            "サブ職人":  (2, "#4DABF7"),
-            "lkデータ":  (3, "#51CF66"),
-            "uv/cデータ": (4, "#CC5DE8"),
-            "その他":    (5, "#FFD43B"),
+            "職人":       (1, "#FF6B6B"),
+            "サブ職人":   (2, "#4DABF7"),
+            "lkデータ":   (3, "#51CF66"),
+            "uv/cpデータ": (4, "#CC5DE8"),
+            "手紙":       (5, "#F59F00"),
+            "その他":     (6, "#FFD43B"),
         }
         with engine.begin() as conn:
             for name, (order, color) in desired.items():
@@ -316,6 +317,34 @@ def _migrate_split_data_job_type():
         pass
 
 
+def _migrate_rename_uvc_and_add_tegami():
+    """Rename 'uv/cデータ' to 'uv/cpデータ' and add '手紙' job type."""
+    try:
+        inspector = sa_inspect(engine)
+        if "job_types" not in inspector.get_table_names():
+            return
+        with engine.begin() as conn:
+            # Rename uv/cデータ → uv/cpデータ
+            row = conn.execute(sa_text(
+                "SELECT id FROM job_types WHERE name = 'uv/cデータ'"
+            )).fetchone()
+            if row is not None:
+                conn.execute(sa_text(
+                    "UPDATE job_types SET name = 'uv/cpデータ' WHERE id = :id"
+                ), {"id": row[0]})
+
+            # Add 手紙 if it doesn't exist
+            tegami = conn.execute(sa_text(
+                "SELECT id FROM job_types WHERE name = '手紙'"
+            )).fetchone()
+            if tegami is None:
+                conn.execute(sa_text(
+                    "INSERT INTO job_types (name, color, sort_order) VALUES ('手紙', '#F59F00', 5)"
+                ))
+    except Exception:
+        pass
+
+
 def init_db():
     """Create tables and seed initial data."""
     Base.metadata.create_all(bind=engine)
@@ -325,6 +354,7 @@ def init_db():
     _migrate_add_sort_order()
     _migrate_add_weekly_work_day_limit()
     _migrate_split_data_job_type()
+    _migrate_rename_uvc_and_add_tegami()
     _migrate_add_job_type_sort_order()
     db = SessionLocal()
     try:
@@ -333,8 +363,9 @@ def init_db():
                 JobType(name="職人", color="#FF6B6B", sort_order=1),
                 JobType(name="サブ職人", color="#4DABF7", sort_order=2),
                 JobType(name="lkデータ", color="#51CF66", sort_order=3),
-                JobType(name="uv/cデータ", color="#CC5DE8", sort_order=4),
-                JobType(name="その他", color="#FFD43B", sort_order=5),
+                JobType(name="uv/cpデータ", color="#CC5DE8", sort_order=4),
+                JobType(name="手紙", color="#F59F00", sort_order=5),
+                JobType(name="その他", color="#FFD43B", sort_order=6),
             ]
             db.add_all(seed_job_types)
             db.commit()
@@ -344,18 +375,18 @@ def init_db():
             seed_data = [
                 ("部長",       "full_time", ["その他"]),
                 ("若生亜紀子", "full_time", ["その他"]),
-                ("和平映美",   "full_time", ["職人", "サブ職人", "lkデータ", "uv/cデータ", "その他"]),
+                ("和平映美",   "full_time", ["職人", "サブ職人", "lkデータ", "uv/cpデータ", "その他"]),
                 ("岡崎智恵子", "full_time", ["職人"]),
-                ("川上朋子",   "dependent", ["lkデータ", "uv/cデータ", "その他"]),
-                ("植原ふみ代", "full_time", ["職人", "サブ職人", "lkデータ", "uv/cデータ", "その他"]),
-                ("尾崎廣子",   "dependent", ["lkデータ", "uv/cデータ", "その他"]),
-                ("酒向邦江",   "dependent", ["lkデータ", "uv/cデータ", "その他"]),
-                ("カンサ萌",   "dependent", ["lkデータ", "uv/cデータ", "その他"]),
+                ("川上朋子",   "dependent", ["lkデータ", "uv/cpデータ", "その他"]),
+                ("植原ふみ代", "full_time", ["職人", "サブ職人", "lkデータ", "uv/cpデータ", "その他"]),
+                ("尾崎廣子",   "dependent", ["lkデータ", "uv/cpデータ", "その他"]),
+                ("酒向邦江",   "dependent", ["lkデータ", "uv/cpデータ", "その他"]),
+                ("カンサ萌",   "dependent", ["lkデータ", "uv/cpデータ", "その他"]),
                 ("秋山智子",   "dependent", ["その他"]),
-                ("石原圭子",   "full_time", ["lkデータ", "uv/cデータ", "その他"]),
-                ("工藤友里",   "full_time", ["lkデータ", "uv/cデータ", "その他"]),
-                ("近藤美佐子", "full_time", ["lkデータ", "uv/cデータ", "その他"]),
-                ("大野千絵美", "full_time", ["職人", "サブ職人", "lkデータ", "uv/cデータ", "その他"]),
+                ("石原圭子",   "full_time", ["lkデータ", "uv/cpデータ", "その他"]),
+                ("工藤友里",   "full_time", ["lkデータ", "uv/cpデータ", "その他"]),
+                ("近藤美佐子", "full_time", ["lkデータ", "uv/cpデータ", "その他"]),
+                ("大野千絵美", "full_time", ["職人", "サブ職人", "lkデータ", "uv/cpデータ", "その他"]),
             ]
             jt_map = {jt.name: jt.id for jt in db.query(JobType).all()}
             for idx, (name, emp_type, jt_names) in enumerate(seed_data):

@@ -21,7 +21,7 @@ export default function ReportsPage() {
 
   useEffect(() => { load(); }, [month]);
 
-  // 仕事種類マスタの順序で表示（sort_order順 = 職人, サブ職人, lkデータ, uv/cデータ, その他）
+  // 仕事種類マスタの順序で表示（sort_order順 = 職人, サブ職人, lkデータ, uv/cpデータ, 手紙, その他）
   const allJobTypes = jobTypes.map((jt) => jt.name);
 
   return (

@@ -19,7 +19,8 @@ JOB_TYPE_COLORS = {
     "職人": "FF6B6B",
     "サブ職人": "4DABF7",
     "lkデータ": "51CF66",
-    "uv/cデータ": "CC5DE8",
+    "uv/cpデータ": "CC5DE8",
+    "手紙": "F59F00",
     "その他": "FFD43B",
 }
 
@@ -277,7 +278,8 @@ def generate_pdf(db: Session, month: str) -> bytes:
         "職人": colors.Color(1.0, 0.42, 0.42),
         "サブ職人": colors.Color(0.3, 0.67, 0.97),
         "lkデータ": colors.Color(0.32, 0.81, 0.4),
-        "uv/cデータ": colors.Color(0.80, 0.36, 0.91),
+        "uv/cpデータ": colors.Color(0.80, 0.36, 0.91),
+        "手紙": colors.Color(0.96, 0.62, 0.0),
         "その他": colors.Color(1.0, 0.83, 0.23),
     }
 
