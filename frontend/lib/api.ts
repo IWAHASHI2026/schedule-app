@@ -100,6 +100,21 @@ export const upsertRequest = (data: {
   note?: string | null;
   days_off: { date: string; period: string }[];
 }) => request<ShiftRequest>("/requests", { method: "POST", body: JSON.stringify(data) });
+export const clearAllRequests = (month: string) =>
+  request<{ status: string; cleared: number }>("/requests/clear-all", {
+    method: "POST", body: JSON.stringify({ month }),
+  });
+export interface RequestBackupInfo {
+  employee_id: number;
+  employee_name: string;
+  created_at: string | null;
+}
+export const getRequestBackups = (month: string) =>
+  request<RequestBackupInfo[]>(`/requests/backups?month=${month}`);
+export const restoreRequest = (employeeId: number, month: string) =>
+  request<ShiftRequest>(`/requests/${employeeId}/restore`, {
+    method: "POST", body: JSON.stringify({ month }),
+  });
 
 // ---- Daily Requirements ----
 export interface DailyRequirement {

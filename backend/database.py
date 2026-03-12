@@ -155,6 +155,17 @@ class NlpModificationLog(Base):
     schedule = relationship("Schedule", back_populates="nlp_logs")
 
 
+class RequestBackup(Base):
+    __tablename__ = "request_backups"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    target_month = Column(Text, nullable=False)
+    backup_data = Column(Text, nullable=False)  # JSON
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    employee = relationship("Employee")
+
+
 def _get_existing_columns(table_name: str) -> list[str]:
     """Get existing column names for a table using SQLAlchemy inspect."""
     try:

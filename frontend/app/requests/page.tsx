@@ -8,10 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Save } from "lucide-react";
+import { Save, Trash2, Undo2 } from "lucide-react";
 import {
   getEmployees, getRequestStatus, getHolidays, upsertRequest,
-  type Employee, type RequestStatus, type Holiday,
+  clearAllRequests, getRequestBackups, restoreRequest,
+  type Employee, type RequestStatus, type Holiday, type RequestBackupInfo,
 } from "@/lib/api";
 
 export default function RequestsPage() {
@@ -28,16 +29,20 @@ export default function RequestsPage() {
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [backups, setBackups] = useState<RequestBackupInfo[]>([]);
+  const [clearing, setClearing] = useState(false);
 
   const load = async () => {
-    const [emps, sts, hols] = await Promise.all([
+    const [emps, sts, hols, bks] = await Promise.all([
       getEmployees(),
       getRequestStatus(month),
       getHolidays(parseInt(month.split("-")[0])),
+      getRequestBackups(month),
     ]);
     setEmployees(emps);
     setStatuses(sts);
     setHolidays(hols);
+    setBackups(bks);
   };
 
   useEffect(() => { load(); }, [month]);
@@ -130,6 +135,30 @@ export default function RequestsPage() {
       setTimeout(() => setSaved(false), 3000);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleClearAll = async () => {
+    const entered = statuses.filter((s) => s.has_request).length;
+    if (entered === 0) { alert("クリアする希望がありません"); return; }
+    if (!confirm(`${month} の全員（${entered}名）の希望入力をクリアしますか？\n※クリア後、個別に復元できます`)) return;
+    setClearing(true);
+    try {
+      await clearAllRequests(month);
+      setSelectedEmpId("");
+      setSelectedDaysOff(new Set());
+      await load();
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const handleRestore = async (empId: number) => {
+    try {
+      await restoreRequest(empId, month);
+      await load();
+    } catch {
+      alert("復元に失敗しました");
     }
   };
 
@@ -313,15 +342,42 @@ export default function RequestsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">入力状況一覧</CardTitle>
+          <CardTitle className="text-lg flex items-center justify-between">
+            <span>入力状況一覧</span>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleClearAll}
+              disabled={clearing || statuses.every((s) => !s.has_request)}
+            >
+              <Trash2 className="mr-1 h-4 w-4" />
+              {clearing ? "クリア中..." : "全員クリア"}
+            </Button>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
-            {statuses.map((s) => (
-              <Badge key={s.employee_id} variant={s.has_request ? "success" : "secondary"}>
-                {s.employee_name}: {s.has_request ? "入力済" : "未入力"}
-              </Badge>
-            ))}
+            {statuses.map((s) => {
+              const hasBackup = backups.some((b) => b.employee_id === s.employee_id);
+              return (
+                <div key={s.employee_id} className="flex items-center gap-1">
+                  <Badge variant={s.has_request ? "success" : "secondary"}>
+                    {s.employee_name}: {s.has_request ? "入力済" : "未入力"}
+                  </Badge>
+                  {!s.has_request && hasBackup && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => handleRestore(s.employee_id)}
+                    >
+                      <Undo2 className="mr-1 h-3 w-3" />
+                      復元
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>
