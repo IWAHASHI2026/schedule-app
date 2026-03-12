@@ -371,7 +371,7 @@ export default function StaffPage() {
                 </div>
               ))}
             </div>
-            <Button onClick={() => window.print()} className="w-full">
+            <Button onClick={() => window.print()} className="w-full print:hidden">
               印刷
             </Button>
           </DialogContent>

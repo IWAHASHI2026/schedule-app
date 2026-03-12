@@ -33,3 +33,23 @@
     @apply bg-background text-foreground;
   }
 }
+
+@media print {
+  /* サイドナビゲーションを非表示 */
+  nav { display: none !important; }
+  /* mainのマージンを解除 */
+  main { margin-left: 0 !important; padding: 0 !important; }
+  /* ダイアログオーバーレイ(黒背景)を非表示 */
+  [data-radix-dialog-overlay] { display: none !important; }
+  /* ダイアログコンテンツをfixedから通常フローに変更 */
+  [data-radix-dialog-content] {
+    position: static !important;
+    transform: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    max-width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 1rem !important;
+  }
+}
