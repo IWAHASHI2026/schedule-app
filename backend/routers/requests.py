@@ -47,6 +47,24 @@ def request_status(month: str, db: Session = Depends(get_db)):
     return result
 
 
+@router.get("/backups", response_model=list[dict])
+def list_backups(month: str, db: Session = Depends(get_db)):
+    """バックアップがある従業員一覧を返す。"""
+    backups = (
+        db.query(RequestBackup)
+        .filter(RequestBackup.target_month == month)
+        .all()
+    )
+    return [
+        {
+            "employee_id": b.employee_id,
+            "employee_name": b.employee.name if b.employee else "",
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+        }
+        for b in backups
+    ]
+
+
 @router.get("/{employee_id}", response_model=ShiftRequestOut)
 def get_request(employee_id: int, month: str, db: Session = Depends(get_db)):
     req = (
@@ -155,24 +173,6 @@ def clear_all_requests(body: dict, db: Session = Depends(get_db)):
 
     db.commit()
     return {"status": "ok", "cleared": len(reqs)}
-
-
-@router.get("/backups", response_model=list[dict])
-def list_backups(month: str, db: Session = Depends(get_db)):
-    """バックアップがある従業員一覧を返す。"""
-    backups = (
-        db.query(RequestBackup)
-        .filter(RequestBackup.target_month == month)
-        .all()
-    )
-    return [
-        {
-            "employee_id": b.employee_id,
-            "employee_name": b.employee.name if b.employee else "",
-            "created_at": b.created_at.isoformat() if b.created_at else None,
-        }
-        for b in backups
-    ]
 
 
 @router.post("/{employee_id}/restore", response_model=ShiftRequestOut)
