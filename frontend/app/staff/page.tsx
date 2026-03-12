@@ -33,6 +33,13 @@ export default function StaffPage() {
   const [qrToken, setQrToken] = useState<EmployeeToken | null>(null);
   const [printMode, setPrintMode] = useState(false);
 
+  // 対象月（デフォルト翌月）
+  const today = new Date();
+  const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const defaultLinkMonth = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}`;
+  const [linkMonth, setLinkMonth] = useState(defaultLinkMonth);
+  const [linkYear, linkMon] = linkMonth.split("-").map(Number);
+
   const load = async () => {
     const [emps, jts, tks] = await Promise.all([getEmployees(), getJobTypes(), getEmployeeTokens()]);
     setEmployees(emps);
@@ -84,7 +91,7 @@ export default function StaffPage() {
 
   const getStaffUrl = (staffToken: string) => {
     const base = typeof window !== "undefined" ? window.location.origin : "";
-    return `${base}/staff-request/${staffToken}`;
+    return `${base}/staff-request/${staffToken}?month=${linkMonth}`;
   };
 
   const handleGenerateToken = async (empId: number) => {
@@ -258,9 +265,15 @@ export default function StaffPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg flex items-center justify-between">
-            <span>希望入力リンク管理</span>
-            <div className="flex gap-2">
+          <CardTitle className="text-lg flex items-center justify-between flex-wrap gap-2">
+            <span>{linkYear}年{linkMon}月シフト — 希望入力リンク管理</span>
+            <div className="flex gap-2 items-center">
+              <Input
+                type="month"
+                value={linkMonth}
+                onChange={(e) => setLinkMonth(e.target.value)}
+                className="w-40 h-8 text-sm"
+              />
               <Button variant="outline" size="sm" onClick={() => setPrintMode(true)}>
                 <QrCode className="mr-1 h-4 w-4" />
                 全員分QR印刷
@@ -326,7 +339,7 @@ export default function StaffPage() {
       <Dialog open={qrDialogOpen} onOpenChange={setQrDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{qrToken?.employee_name} — QRコード</DialogTitle>
+            <DialogTitle>{qrToken?.employee_name} — {linkYear}年{linkMon}月シフト QRコード</DialogTitle>
           </DialogHeader>
           {qrToken?.staff_token && (
             <div className="flex flex-col items-center gap-4 py-4">
@@ -347,12 +360,13 @@ export default function StaffPage() {
         <Dialog open={printMode} onOpenChange={setPrintMode}>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>全員QRコード（印刷用）</DialogTitle>
+              <DialogTitle>{linkYear}年{linkMon}月シフト — 全員QRコード（印刷用）</DialogTitle>
             </DialogHeader>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 py-4 print:grid-cols-3">
               {tokens.filter((t) => t.staff_token).map((t) => (
                 <div key={t.employee_id} className="flex flex-col items-center gap-2 border p-3 rounded">
                   <p className="font-bold text-sm">{t.employee_name}</p>
+                  <p className="text-xs text-muted-foreground">{linkYear}年{linkMon}月シフト希望</p>
                   <QRCodeSVG value={getStaffUrl(t.staff_token!)} size={120} />
                 </div>
               ))}
