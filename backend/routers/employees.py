@@ -1,8 +1,9 @@
+import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from database import get_db, Employee, EmployeeJobType, JobType
-from models import EmployeeCreate, EmployeeUpdate, EmployeeOut, EmployeeJobTypesUpdate, EmployeeFullUpdate, EmployeeReorder, JobTypeOut
+from models import EmployeeCreate, EmployeeUpdate, EmployeeOut, EmployeeJobTypesUpdate, EmployeeFullUpdate, EmployeeReorder, EmployeeTokenOut, JobTypeOut
 
 router = APIRouter(prefix="/api/employees", tags=["employees"])
 
@@ -94,6 +95,43 @@ def update_employee_full(
     db.commit()
     db.refresh(emp)
     return _employee_to_out(emp)
+
+
+@router.get("/tokens", response_model=list[EmployeeTokenOut])
+def list_employee_tokens(db: Session = Depends(get_db)):
+    employees = db.query(Employee).order_by(Employee.sort_order).all()
+    return [
+        EmployeeTokenOut(
+            employee_id=emp.id,
+            employee_name=emp.name,
+            staff_token=emp.staff_token,
+        )
+        for emp in employees
+    ]
+
+
+@router.post("/{employee_id}/token", response_model=EmployeeTokenOut)
+def generate_token(employee_id: int, db: Session = Depends(get_db)):
+    emp = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    emp.staff_token = str(uuid.uuid4())
+    db.commit()
+    db.refresh(emp)
+    return EmployeeTokenOut(
+        employee_id=emp.id,
+        employee_name=emp.name,
+        staff_token=emp.staff_token,
+    )
+
+
+@router.delete("/{employee_id}/token", status_code=204)
+def revoke_token(employee_id: int, db: Session = Depends(get_db)):
+    emp = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    emp.staff_token = None
+    db.commit()
 
 
 @router.put("/{employee_id}/job-types", response_model=EmployeeOut)

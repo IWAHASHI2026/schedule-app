@@ -36,6 +36,11 @@ class EmployeeFullUpdate(BaseModel):
 class EmployeeReorder(BaseModel):
     employee_ids: list[int]
 
+class EmployeeTokenOut(BaseModel):
+    employee_id: int
+    employee_name: str
+    staff_token: Optional[str] = None
+
 
 # ---- Shift Requests ----
 
@@ -166,6 +171,23 @@ class EmployeeReportOut(BaseModel):
 class ReportOut(BaseModel):
     month: str
     employees: list[EmployeeReportOut] = []
+
+
+# ---- Staff Portal ----
+
+class StaffPortalInfo(BaseModel):
+    employee_id: int
+    employee_name: str
+    employment_type: str
+    target_month: str
+    existing_request: Optional[ShiftRequestOut] = None
+
+class StaffRequestSubmit(BaseModel):
+    target_month: str
+    requested_work_days: Optional[str] = None
+    weekly_work_day_limit: Optional[int] = None
+    note: Optional[str] = None
+    days_off: list[DayOffItem] = []
 
 
 # ---- Holidays ----

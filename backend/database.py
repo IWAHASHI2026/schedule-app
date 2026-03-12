@@ -56,6 +56,7 @@ class Employee(Base):
     name = Column(Text, nullable=False)
     employment_type = Column(Text, nullable=False, default="full_time")
     sort_order = Column(Integer, nullable=False, default=0)
+    staff_token = Column(Text, nullable=True, unique=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -317,6 +318,19 @@ def _migrate_split_data_job_type():
         pass
 
 
+def _migrate_add_staff_token():
+    """Add staff_token column to employees if it doesn't exist."""
+    try:
+        columns = _get_existing_columns("employees")
+        if columns and "staff_token" not in columns:
+            with engine.begin() as conn:
+                conn.execute(sa_text(
+                    "ALTER TABLE employees ADD COLUMN staff_token TEXT"
+                ))
+    except Exception:
+        pass  # Table may not exist yet
+
+
 def _migrate_rename_uvc_and_add_tegami():
     """Rename 'uv/cデータ' to 'uv/cpデータ' and add '手紙' job type."""
     try:
@@ -355,6 +369,7 @@ def init_db():
     _migrate_add_weekly_work_day_limit()
     _migrate_split_data_job_type()
     _migrate_rename_uvc_and_add_tegami()
+    _migrate_add_staff_token()
     _migrate_add_job_type_sort_order()
     db = SessionLocal()
     try:

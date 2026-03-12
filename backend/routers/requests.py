@@ -57,18 +57,22 @@ def get_request(employee_id: int, month: str, db: Session = Depends(get_db)):
     return _request_to_out(req)
 
 
-@router.post("", response_model=ShiftRequestOut, status_code=201)
-def upsert_request(body: ShiftRequestCreate, db: Session = Depends(get_db)):
-    emp = db.query(Employee).filter(Employee.id == body.employee_id).first()
-    if not emp:
-        raise HTTPException(status_code=404, detail="Employee not found")
-
+def upsert_shift_request(
+    db: Session,
+    employee_id: int,
+    target_month: str,
+    requested_work_days: str | None,
+    weekly_work_day_limit: int | None,
+    note: str | None,
+    days_off: list,
+) -> ShiftRequest:
+    """Shared upsert logic used by both admin and staff portal endpoints."""
     # Upsert: delete existing for same employee+month
     existing = (
         db.query(ShiftRequest)
         .filter(
-            ShiftRequest.employee_id == body.employee_id,
-            ShiftRequest.target_month == body.target_month,
+            ShiftRequest.employee_id == employee_id,
+            ShiftRequest.target_month == target_month,
         )
         .first()
     )
@@ -77,18 +81,36 @@ def upsert_request(body: ShiftRequestCreate, db: Session = Depends(get_db)):
         db.flush()
 
     req = ShiftRequest(
+        employee_id=employee_id,
+        target_month=target_month,
+        requested_work_days=requested_work_days,
+        weekly_work_day_limit=weekly_work_day_limit,
+        note=note,
+    )
+    db.add(req)
+    db.flush()
+
+    for d in days_off:
+        db.add(RequestDetail(shift_request_id=req.id, date=d.date, period=d.period))
+
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+@router.post("", response_model=ShiftRequestOut, status_code=201)
+def upsert_request(body: ShiftRequestCreate, db: Session = Depends(get_db)):
+    emp = db.query(Employee).filter(Employee.id == body.employee_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    req = upsert_shift_request(
+        db=db,
         employee_id=body.employee_id,
         target_month=body.target_month,
         requested_work_days=body.requested_work_days,
         weekly_work_day_limit=body.weekly_work_day_limit,
         note=body.note,
+        days_off=body.days_off,
     )
-    db.add(req)
-    db.flush()
-
-    for d in body.days_off:
-        db.add(RequestDetail(shift_request_id=req.id, date=d.date, period=d.period))
-
-    db.commit()
-    db.refresh(req)
     return _request_to_out(req)

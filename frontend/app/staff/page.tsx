@@ -9,11 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowUp, ArrowDown, Link2, QrCode, Copy, LinkIcon, Unlink } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   getEmployees, createEmployee, updateEmployee, deleteEmployee,
   updateEmployeeFull, reorderEmployees, getJobTypes,
-  type Employee, type JobType,
+  getEmployeeTokens, generateToken, revokeToken,
+  type Employee, type JobType, type EmployeeToken,
 } from "@/lib/api";
 
 export default function StaffPage() {
@@ -26,11 +28,16 @@ export default function StaffPage() {
   const [editJobTypes, setEditJobTypes] = useState<number[]>([]);
   const [editEmploymentType, setEditEmploymentType] = useState("full_time");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [tokens, setTokens] = useState<EmployeeToken[]>([]);
+  const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  const [qrToken, setQrToken] = useState<EmployeeToken | null>(null);
+  const [printMode, setPrintMode] = useState(false);
 
   const load = async () => {
-    const [emps, jts] = await Promise.all([getEmployees(), getJobTypes()]);
+    const [emps, jts, tks] = await Promise.all([getEmployees(), getJobTypes(), getEmployeeTokens()]);
     setEmployees(emps);
     setJobTypes(jts);
+    setTokens(tks);
   };
 
   useEffect(() => { load(); }, []);
@@ -73,6 +80,41 @@ export default function StaffPage() {
     setEditJobTypes((prev) =>
       prev.includes(jtId) ? prev.filter((id) => id !== jtId) : [...prev, jtId]
     );
+  };
+
+  const getStaffUrl = (staffToken: string) => {
+    const base = typeof window !== "undefined" ? window.location.origin : "";
+    return `${base}/staff-request/${staffToken}`;
+  };
+
+  const handleGenerateToken = async (empId: number) => {
+    await generateToken(empId);
+    load();
+  };
+
+  const handleRevokeToken = async (empId: number) => {
+    if (!confirm("このリンクを無効化しますか？")) return;
+    await revokeToken(empId);
+    load();
+  };
+
+  const handleGenerateAll = async () => {
+    const missing = tokens.filter((t) => !t.staff_token);
+    if (missing.length === 0) { alert("全員のリンクが生成済みです"); return; }
+    for (const t of missing) {
+      await generateToken(t.employee_id);
+    }
+    load();
+  };
+
+  const handleCopyUrl = async (staffToken: string) => {
+    await navigator.clipboard.writeText(getStaffUrl(staffToken));
+    alert("URLをコピーしました");
+  };
+
+  const handleShowQr = (t: EmployeeToken) => {
+    setQrToken(t);
+    setQrDialogOpen(true);
   };
 
   const handleMove = async (index: number, direction: "up" | "down") => {
@@ -213,6 +255,114 @@ export default function StaffPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center justify-between">
+            <span>希望入力リンク管理</span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setPrintMode(true)}>
+                <QrCode className="mr-1 h-4 w-4" />
+                全員分QR印刷
+              </Button>
+              <Button size="sm" onClick={handleGenerateAll}>
+                <Link2 className="mr-1 h-4 w-4" />
+                全員一括生成
+              </Button>
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="py-2 px-3 text-left">氏名</th>
+                  <th className="py-2 px-3 text-left">リンク状態</th>
+                  <th className="py-2 px-3 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tokens.map((t) => (
+                  <tr key={t.employee_id} className="border-b hover:bg-muted/50">
+                    <td className="py-2 px-3 font-medium">{t.employee_name}</td>
+                    <td className="py-2 px-3">
+                      {t.staff_token ? (
+                        <Badge variant="outline" className="border-green-500 text-green-700">有効</Badge>
+                      ) : (
+                        <Badge variant="secondary">未生成</Badge>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-right">
+                      <div className="flex justify-end gap-1">
+                        {t.staff_token ? (
+                          <>
+                            <Button variant="ghost" size="sm" onClick={() => handleShowQr(t)} title="QR表示">
+                              <QrCode className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => handleCopyUrl(t.staff_token!)} title="URLコピー">
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => handleRevokeToken(t.employee_id)} title="リンク無効化">
+                              <Unlink className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </>
+                        ) : (
+                          <Button variant="outline" size="sm" onClick={() => handleGenerateToken(t.employee_id)}>
+                            <LinkIcon className="mr-1 h-4 w-4" />
+                            リンク生成
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={qrDialogOpen} onOpenChange={setQrDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{qrToken?.employee_name} — QRコード</DialogTitle>
+          </DialogHeader>
+          {qrToken?.staff_token && (
+            <div className="flex flex-col items-center gap-4 py-4">
+              <QRCodeSVG value={getStaffUrl(qrToken.staff_token)} size={200} />
+              <p className="text-xs text-muted-foreground text-center break-all max-w-[280px]">
+                {getStaffUrl(qrToken.staff_token)}
+              </p>
+              <Button variant="outline" onClick={() => handleCopyUrl(qrToken.staff_token!)}>
+                <Copy className="mr-2 h-4 w-4" />
+                URLをコピー
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {printMode && (
+        <Dialog open={printMode} onOpenChange={setPrintMode}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>全員QRコード（印刷用）</DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 py-4 print:grid-cols-3">
+              {tokens.filter((t) => t.staff_token).map((t) => (
+                <div key={t.employee_id} className="flex flex-col items-center gap-2 border p-3 rounded">
+                  <p className="font-bold text-sm">{t.employee_name}</p>
+                  <QRCodeSVG value={getStaffUrl(t.staff_token!)} size={120} />
+                </div>
+              ))}
+            </div>
+            <Button onClick={() => window.print()} className="w-full">
+              印刷
+            </Button>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>

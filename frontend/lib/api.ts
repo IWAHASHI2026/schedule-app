@@ -216,6 +216,36 @@ export interface Holiday {
 
 export const getHolidays = (year: number) => request<Holiday[]>(`/holidays?year=${year}`);
 
+// ---- Staff Portal ----
+export interface StaffPortalInfo {
+  employee_id: number;
+  employee_name: string;
+  employment_type: string;
+  target_month: string;
+  existing_request: ShiftRequest | null;
+}
+
+export interface EmployeeToken {
+  employee_id: number;
+  employee_name: string;
+  staff_token: string | null;
+}
+
+export const getStaffPortalInfo = (token: string, month: string) =>
+  request<StaffPortalInfo>(`/staff-portal/${token}?month=${month}`);
+export const submitStaffRequest = (token: string, data: {
+  target_month: string;
+  requested_work_days?: string | null;
+  weekly_work_day_limit?: number | null;
+  note?: string | null;
+  days_off: { date: string; period: string }[];
+}) => request<ShiftRequest>(`/staff-portal/${token}`, { method: "POST", body: JSON.stringify(data) });
+export const getEmployeeTokens = () => request<EmployeeToken[]>("/employees/tokens");
+export const generateToken = (employeeId: number) =>
+  request<EmployeeToken>(`/employees/${employeeId}/token`, { method: "POST" });
+export const revokeToken = (employeeId: number) =>
+  request<void>(`/employees/${employeeId}/token`, { method: "DELETE" });
+
 // ---- Export ----
 export const getExportUrl = (type: "csv" | "excel" | "pdf", month: string) =>
   `${API_BASE}/export/${type}?month=${month}`;
