@@ -168,9 +168,9 @@ export default function StaffRequestPage() {
             <p className="text-muted-foreground">
               {info.employee_name}さんの{parseInt(month.split("-")[1])}月のシフト希望を受け付けました。
             </p>
-            <Button variant="outline" onClick={() => setSaved(false)} className="w-full">
-              内容を修正する
-            </Button>
+            <p className="text-sm text-muted-foreground">
+              希望変更がありましたら、若生さんまでお伝えください。
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -178,6 +178,72 @@ export default function StaffRequestPage() {
   }
 
   const [calYear, calMonth] = month.split("-").map(Number);
+
+  // Show read-only summary if already submitted
+  if (info.existing_request) {
+    const req = info.existing_request;
+    const periodLabel = (p: string) => p === "all_day" ? "終日" : p === "am" ? "午前" : "午後";
+    return (
+      <div className="min-h-screen bg-gray-50 p-3 sm:p-4 max-w-lg mx-auto">
+        <div className="mb-4">
+          <h1 className="text-lg font-bold">
+            {info.employee_name}さん — {calMonth}月 シフト希望
+          </h1>
+          <Badge variant="outline" className="mt-1 border-green-500 text-green-700">
+            入力済み
+          </Badge>
+        </div>
+
+        <Card className="mb-4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">送信済みの希望内容</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {req.details.length > 0 && (
+              <div>
+                <Label className="text-sm font-medium">希望休日</Label>
+                <ul className="mt-1 space-y-1">
+                  {req.details
+                    .slice()
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .map((d, i) => (
+                      <li key={i} className="text-sm text-muted-foreground">
+                        {d.date}（{periodLabel(d.period)}）
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
+            {req.requested_work_days && (
+              <div>
+                <Label className="text-sm font-medium">希望出勤日数</Label>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {req.requested_work_days === "max" ? "なるべく多く" : `${req.requested_work_days}日以内`}
+                </p>
+              </div>
+            )}
+            {req.weekly_work_day_limit != null && (
+              <div>
+                <Label className="text-sm font-medium">週間出勤上限</Label>
+                <p className="text-sm text-muted-foreground mt-1">週{req.weekly_work_day_limit}日以内</p>
+              </div>
+            )}
+            {req.note && (
+              <div>
+                <Label className="text-sm font-medium">備考</Label>
+                <p className="text-sm text-muted-foreground mt-1">{req.note}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <p className="text-sm text-muted-foreground text-center">
+          希望変更がありましたら、若生さんまでお伝えください。
+        </p>
+      </div>
+    );
+  }
+
   const daysInMonth = new Date(calYear, calMonth, 0).getDate();
   const firstDow = new Date(calYear, calMonth - 1, 1).getDay();
   const holidayDates = new Set(holidays.map((h) => h.date));
@@ -212,11 +278,6 @@ export default function StaffRequestPage() {
         <h1 className="text-lg font-bold">
           {info.employee_name}さん — {calMonth}月 シフト希望入力
         </h1>
-        {info.existing_request && (
-          <Badge variant="outline" className="mt-1 border-green-500 text-green-700">
-            入力済み — 内容を変更できます
-          </Badge>
-        )}
       </div>
 
       <Card className="mb-4">

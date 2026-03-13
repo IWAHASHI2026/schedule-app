@@ -40,6 +40,14 @@ def get_staff_portal_info(token: str, month: str, db: Session = Depends(get_db))
 def submit_staff_request(token: str, body: StaffRequestSubmit, db: Session = Depends(get_db)):
     emp = _get_employee_by_token(db, token)
 
+    existing = (
+        db.query(ShiftRequest)
+        .filter(ShiftRequest.employee_id == emp.id, ShiftRequest.target_month == body.target_month)
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="既にシフト希望が送信済みです。変更が必要な場合は管理者にご連絡ください。")
+
     req = upsert_shift_request(
         db=db,
         employee_id=emp.id,
