@@ -14,7 +14,6 @@ Hard constraints:
   HC-05: No work on weekends/holidays
   HC-06: 職人・サブ職人 are each assigned exactly 1 person per working day
          (half-day workers are excluded from these roles)
-  HC-06b: 職人・サブ職人の割り当て均等化（1人あたり最大 ceil(営業日数/有資格者数) 日）
   HC-07: Weekly work day limit per employee (if set)
 
 Soft constraints (objective function):
@@ -211,20 +210,6 @@ def generate_schedule(
                 model.add(
                     sum(x[e_id, d, j] for e_id in emp_ids if j in emp_job_types.get(e_id, [])) == 1
                 )
-
-    # HC-06b: 職人・サブ職人の割り当て均等化
-    # 有資格者間で月間割り当て日数を均等にするため、1人あたりの上限を設ける
-    import math
-    for j in hard_one_jt_ids:
-        qualified = [e_id for e_id in emp_ids
-                     if j in emp_job_types.get(e_id, [])]
-        if len(qualified) <= 1:
-            continue
-        max_per_person = math.ceil(len(working_dates) / len(qualified))
-        for e_id in qualified:
-            model.add(
-                sum(x[e_id, d, j] for d in working_dates) <= max_per_person
-            )
 
     # HC-04b: 日別必要人数が未設定の職種には配置しない（上限0扱い）
     for d in working_dates:
