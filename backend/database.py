@@ -20,6 +20,13 @@ if DATABASE_URL.startswith("postgres://"):
 
 _is_sqlite = DATABASE_URL.startswith("sqlite")
 
+# 本番環境（PORT設定あり）でSQLiteを使用している場合は警告
+if _is_sqlite and os.getenv("PORT"):
+    logger.warning(
+        "⚠️ SQLiteを本番環境で使用中。データはデプロイ時に消失します。"
+        "DATABASE_URLにPostgreSQLを設定してください。"
+    )
+
 # SQLite needs check_same_thread=False; PostgreSQL does not
 _engine_kwargs = {}
 if _is_sqlite:

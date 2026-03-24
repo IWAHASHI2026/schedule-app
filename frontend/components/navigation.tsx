@@ -12,6 +12,7 @@ import {
   CalendarCheck,
   BarChart3,
   Download,
+  Database,
 } from "lucide-react";
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
   { href: "/schedule", label: "シフト表", icon: CalendarCheck },
   { href: "/reports", label: "集計・レポート", icon: BarChart3 },
   { href: "/export", label: "シフト出力", icon: Download },
+  { href: "/backup", label: "データ管理", icon: Database },
 ];
 
 export default function Navigation() {
