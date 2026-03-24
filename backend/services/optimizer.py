@@ -14,6 +14,7 @@ Hard constraints:
   HC-05: No work on weekends/holidays
   HC-06: 職人・サブ職人 are each assigned exactly 1 person per working day
          (half-day workers are excluded from these roles)
+  HC-06b: 職人・サブ職人の割り当て均等化（1人あたり最大 ceil(営業日数/有資格者数)+1 日）
   HC-07: Weekly work day limit per employee (if set)
 
 Soft constraints (objective function) — 4段階の優先順位:
@@ -29,7 +30,7 @@ Soft constraints (objective function) — 4段階の優先順位:
     SC-09: Dependent staff minimum work days target (weight 8, default 10 days)
   [Tier 4] 扶養内の仕事バランス: (SC-04, SC-08 の dependent weights)
   Other:
-    SC-05: Prefer higher-priority job types (weight 2)
+    SC-05: Prefer higher-priority job types (weight 1)
     SC-06: Prefer full-time employees over dependent (weight 3)
     SC-07: Avoid same job type on consecutive working days (weight 5)
     Shortage penalty: Priority-weighted (higher priority = higher penalty)
@@ -212,6 +213,21 @@ def generate_schedule(
                 model.add(
                     sum(x[e_id, d, j] for e_id in emp_ids if j in emp_job_types.get(e_id, [])) == 1
                 )
+
+    # HC-06b: 職人・サブ職人の割り当て均等化
+    # 有資格者間で月間割り当て日数を均等にするため、1人あたりの上限を設ける
+    # +1のスラックで柔軟性を確保しつつ、極端な集中を防止
+    import math
+    for j in hard_one_jt_ids:
+        qualified = [e_id for e_id in emp_ids
+                     if j in emp_job_types.get(e_id, [])]
+        if len(qualified) <= 1:
+            continue
+        max_per_person = math.ceil(len(working_dates) / len(qualified)) + 1
+        for e_id in qualified:
+            model.add(
+                sum(x[e_id, d, j] for d in working_dates) <= max_per_person
+            )
 
     # HC-04b: 日別必要人数が未設定の職種には配置しない（上限0扱い）
     for d in working_dates:
@@ -404,8 +420,8 @@ def generate_schedule(
                     model.add(diff >= emp_job_counts[e2][j] - emp_job_counts[e1][j])
                     objective_terms.append(diff * fairness_weight)
 
-    # SC-05: Priority cost - prefer lower sort_order (1=職人, 2=サブ, 3=lkデータ, 4=uv/cpデータ, 5=手紙, 6=その他)
-    priority_weight = 2
+    # SC-05: Priority cost - prefer lower sort_order (weight 1, reduced to avoid conflicting with SC-04 balance)
+    priority_weight = 1
     for e_id in emp_ids:
         for d in working_dates:
             for j in all_job_type_ids:
