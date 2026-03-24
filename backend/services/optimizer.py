@@ -6,8 +6,11 @@ Hard constraints:
          - Full day off (am+pm): employee cannot work
          - Half day off (am or pm only): employee can work with headcount 0.5
   HC-02: One job type per employee per day
-  HC-03: Daily required headcount per job type must be met (soft for lkデータ/uv/cpデータ/手紙/その他)
+  HC-03: Daily required headcount per job type — upper limit + shortage penalty
+         - 必要人数を上限とし、超過配置を禁止
+         - 不足分は「その他」の上限に加算（オーバーフロー）
   HC-04: Only assign job types the employee is qualified for
+  HC-04b: 日別必要人数が未設定の職種には配置しない（上限0扱い）
   HC-05: No work on weekends/holidays
   HC-06: 職人・サブ職人 are each assigned exactly 1 person per working day
          (half-day workers are excluded from these roles)
@@ -20,7 +23,7 @@ Soft constraints (objective function):
        - Half day counts as 0.5 work days
   SC-04: Minimize job type imbalance per employee — pairwise balance (weight 3 per pair)
   SC-05: Prefer higher-priority job types (lower sort_order = higher priority, weight 2)
-  SC-06: Prefer full-time employees over dependent (weight 1)
+  SC-06: Prefer full-time employees over dependent (weight 5)
   SC-07: Avoid same job type on consecutive working days per employee (weight 5)
   SC-08: Cross-employee job type fairness within same qualification group (weight 2)
          — employees with identical qualification sets should get similar job type counts
@@ -192,6 +195,9 @@ def generate_schedule(
     # 半日勤務者はフル勤務できないため、職人/サブ職人には割り当てない
     from database import JobType
     hard_one_jt_ids = set()
+    # 「その他」のjob_type_idを取得（オーバーフロー先）
+    sono_ta_jt = db.query(JobType).filter(JobType.name == "その他").first()
+    sono_ta_jt_id = sono_ta_jt.id if sono_ta_jt else None
     for jt in db.query(JobType).filter(JobType.name.in_(["職人", "サブ職人"])).all():
         hard_one_jt_ids.add(jt.id)
     for d in working_dates:
@@ -204,6 +210,17 @@ def generate_schedule(
                 model.add(
                     sum(x[e_id, d, j] for e_id in emp_ids if j in emp_job_types.get(e_id, [])) == 1
                 )
+
+    # HC-04b: 日別必要人数が未設定の職種には配置しない（上限0扱い）
+    for d in working_dates:
+        reqs_for_day = daily_reqs.get(d, {})
+        for j in all_job_type_ids:
+            if j in hard_one_jt_ids:
+                continue  # 職人・サブ職人はHC-06で管理
+            if j not in reqs_for_day:
+                for e_id in emp_ids:
+                    if j in emp_job_types.get(e_id, []):
+                        model.add(x[e_id, d, j] == 0)
 
     # HC-07: Weekly work day limit per employee
     from collections import defaultdict
@@ -218,7 +235,10 @@ def generate_schedule(
             for week_key, week_dates in weeks.items():
                 model.add(sum(work[e_id, d] for d in week_dates) <= wlimit)
 
-    # HC-03: Meet daily requirements (soft constraint with high penalty)
+    # HC-03: Daily requirements as upper limits with overflow to その他
+    # - 必要人数を上限とし、超過配置を禁止（ハード制約）
+    # - 不足分はペナルティ付きソフト制約で追跡
+    # - 他職種の不足分は「その他」の上限に加算（オーバーフロー）
     # Using integer scaling: multiply by 2 for 0.5 support
     # Half-day workers contribute 1 unit (0.5), full-day workers contribute 2 units (1.0)
     violations = []
@@ -226,19 +246,52 @@ def generate_schedule(
     for d in working_dates:
         if d not in daily_reqs:
             continue
+        day_overflow = []  # 他職種の不足分（その他にオーバーフロー）
         for j, req_count in daily_reqs[d].items():
             if j in hard_one_jt_ids:
                 continue  # Already enforced as hard constraint above
+            if j == sono_ta_jt_id:
+                continue  # その他はオーバーフロー集計後に処理
             scaled_req = int(req_count * 2)
             supply = sum(
                 x[e_id, d, j] * emp_hc_factor[e_id].get(d, 2)
                 for e_id in emp_ids
                 if j in emp_job_types.get(e_id, [])
             )
-            # Soft constraint: allow shortage but penalize heavily
+            # Upper limit: 必要人数を超えて配置しない
+            model.add(supply <= scaled_req)
+            # Shortage tracking: 不足分をトラッキング
             shortage = model.new_int_var(0, scaled_req, f"shortage_{d}_{j}")
-            model.add(supply + shortage >= scaled_req)
+            model.add(shortage >= scaled_req - supply)
             shortage_vars.append((shortage, j))
+            day_overflow.append(shortage)
+
+        # その他: 上限 = 基本要件 + 他職種の不足分（オーバーフロー）
+        if sono_ta_jt_id and sono_ta_jt_id in all_job_type_ids:
+            sono_ta_req = daily_reqs[d].get(sono_ta_jt_id, 0)
+            scaled_sono_ta_req = int(sono_ta_req * 2)
+            sono_ta_supply = sum(
+                x[e_id, d, sono_ta_jt_id] * emp_hc_factor[e_id].get(d, 2)
+                for e_id in emp_ids
+                if sono_ta_jt_id in emp_job_types.get(e_id, [])
+            )
+            # Upper limit with overflow
+            if day_overflow:
+                model.add(sono_ta_supply <= scaled_sono_ta_req + sum(day_overflow))
+                # Effective cap for shortage calculation
+                effective_cap = model.new_int_var(
+                    0, scaled_sono_ta_req + len(emp_ids) * 2, f"sonota_cap_{d}"
+                )
+                model.add(effective_cap == scaled_sono_ta_req + sum(day_overflow))
+            else:
+                model.add(sono_ta_supply <= scaled_sono_ta_req)
+                effective_cap = scaled_sono_ta_req
+            # Shortage for その他
+            sono_ta_shortage = model.new_int_var(
+                0, scaled_sono_ta_req + len(emp_ids) * 2, f"shortage_{d}_{sono_ta_jt_id}"
+            )
+            model.add(sono_ta_shortage >= effective_cap - sono_ta_supply)
+            shortage_vars.append((sono_ta_shortage, sono_ta_jt_id))
 
     # Apply extra constraints from NLP modifications
     if extra_constraints:
@@ -350,11 +403,13 @@ def generate_schedule(
             for j in all_job_type_ids:
                 objective_terms.append(x[e_id, d, j] * jt_sort_order.get(j, j) * priority_weight)
 
-    # SC-06: Prefer full-time employees over dependent (weight 1)
+    # SC-06: Prefer full-time employees over dependent (weight 5)
+    # フル勤務スタッフを優先配置。SC-09(weight 15)との組み合わせで
+    # 扶養内は目標未達時に出勤が有利(15>5)、目標達成後は控える
     for e_id in emp_ids:
         if emp_type[e_id] == "dependent":
             for d in working_dates:
-                objective_terms.append(work[e_id, d] * 1)
+                objective_terms.append(work[e_id, d] * 5)
 
     # SC-07: Avoid same job type on consecutive working days (weight 5)
     for e_id in emp_ids:
