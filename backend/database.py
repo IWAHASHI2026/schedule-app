@@ -20,6 +20,13 @@ if DATABASE_URL.startswith("postgres://"):
 
 _is_sqlite = DATABASE_URL.startswith("sqlite")
 
+# 本番環境（PORT設定あり）でSQLiteを使用している場合は警告
+if _is_sqlite and os.getenv("PORT"):
+    logger.warning(
+        "⚠️ SQLiteを本番環境で使用中。データはデプロイ時に消失します。"
+        "DATABASE_URLにPostgreSQLを設定してください。"
+    )
+
 # SQLite needs check_same_thread=False; PostgreSQL does not
 _engine_kwargs = {}
 if _is_sqlite:
@@ -400,19 +407,19 @@ def init_db():
             # name, employment_type, job_type_names
             seed_data = [
                 ("部長",       "full_time", ["その他"]),
-                ("若生亜紀子", "full_time", ["その他"]),
-                ("和平映美",   "full_time", ["職人", "サブ職人", "lkデータ", "uv/cpデータ", "その他"]),
+                ("岩生亜紀子", "full_time", ["その他"]),
+                ("大野千絵美", "full_time", ["職人", "サブ職人", "lkデータ", "uv/cpデータ", "手紙", "その他"]),
+                ("和平映美",   "full_time", ["職人", "サブ職人", "lkデータ", "uv/cpデータ", "手紙", "その他"]),
                 ("岡崎智恵子", "full_time", ["職人"]),
-                ("川上朋子",   "dependent", ["lkデータ", "uv/cpデータ", "その他"]),
-                ("植原ふみ代", "full_time", ["職人", "サブ職人", "lkデータ", "uv/cpデータ", "その他"]),
-                ("尾崎廣子",   "dependent", ["lkデータ", "uv/cpデータ", "その他"]),
-                ("酒向邦江",   "dependent", ["lkデータ", "uv/cpデータ", "その他"]),
-                ("カンサ萌",   "dependent", ["lkデータ", "uv/cpデータ", "その他"]),
-                ("秋山智子",   "dependent", ["その他"]),
-                ("石原圭子",   "full_time", ["lkデータ", "uv/cpデータ", "その他"]),
-                ("工藤友里",   "full_time", ["lkデータ", "uv/cpデータ", "その他"]),
-                ("近藤美佐子", "full_time", ["lkデータ", "uv/cpデータ", "その他"]),
-                ("大野千絵美", "full_time", ["職人", "サブ職人", "lkデータ", "uv/cpデータ", "その他"]),
+                ("川上節子",   "dependent", ["lkデータ", "uv/cpデータ", "手紙", "その他"]),
+                ("植原ふみ代", "full_time", ["職人", "サブ職人", "lkデータ", "手紙", "その他"]),
+                ("尾崎慶子",   "dependent", ["手紙", "その他"]),
+                ("酒向邦江",   "dependent", ["手紙", "その他"]),
+                ("カンサ萌",   "dependent", ["lkデータ", "uv/cpデータ", "手紙", "その他"]),
+                ("秋山智子",   "dependent", ["手紙", "その他"]),
+                ("石原圭子",   "full_time", ["lkデータ", "手紙", "その他"]),
+                ("工藤友里",   "full_time", ["lkデータ", "手紙", "その他"]),
+                ("近藤美佐子", "full_time", ["手紙", "その他"]),
             ]
             jt_map = {jt.name: jt.id for jt in db.query(JobType).all()}
             for idx, (name, emp_type, jt_names) in enumerate(seed_data):
