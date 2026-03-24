@@ -6,33 +6,24 @@ Hard constraints:
          - Full day off (am+pm): employee cannot work
          - Half day off (am or pm only): employee can work with headcount 0.5
   HC-02: One job type per employee per day
-  HC-03: Daily required headcount per job type — upper limit + shortage penalty
-         - 必要人数を上限とし、超過配置を禁止
-         - 不足分は「その他」の上限に加算（オーバーフロー）
+  HC-03: Daily required headcount per job type must be met (soft for lkデータ/uv/cpデータ/手紙/その他)
   HC-04: Only assign job types the employee is qualified for
-  HC-04b: 日別必要人数が未設定の職種には配置しない（上限0扱い）
   HC-05: No work on weekends/holidays
   HC-06: 職人・サブ職人 are each assigned exactly 1 person per working day
          (half-day workers are excluded from these roles)
   HC-07: Weekly work day limit per employee (if set)
 
-Soft constraints (objective function) — 4段階の優先順位:
-  [Tier 1] フル勤務の希望日数:
-    SC-01: Requested work days (full-time "max" weight 50, dependent "max" weight 8)
-         - "max" = maximize work days (penalize non-work, soft)
-         - Numeric value = hard upper limit on total work days
-         - Full-time with no request = default to "max"
-  [Tier 2] フル勤務の仕事バランス:
-    SC-04: Job type balance per employee (full-time weight 10, dependent weight 2)
-    SC-08: Cross-employee fairness within same qualification group (full-time weight 5, dependent weight 1)
-  [Tier 3] 扶養内の希望日数:
-    SC-09: Dependent staff minimum work days target (weight 8, default 10 days)
-  [Tier 4] 扶養内の仕事バランス: (SC-04, SC-08 の dependent weights)
-  Other:
-    SC-05: Prefer higher-priority job types (weight 2)
-    SC-06: Prefer full-time employees over dependent (weight 3)
-    SC-07: Avoid same job type on consecutive working days (weight 5)
-    Shortage penalty: Priority-weighted (higher priority = higher penalty)
+Soft constraints (objective function):
+  SC-01: Requested work days upper limit (hard constraint for numeric values)
+       - "max" = maximize work days (penalize non-work, soft)
+       - Numeric value = hard upper limit on total work days
+       - Half day counts as 0.5 work days
+  SC-04: Minimize job type imbalance per employee — pairwise balance (weight 3 per pair)
+  SC-05: Prefer higher-priority job types (lower sort_order = higher priority, weight 1)
+  SC-06: Prefer full-time employees over dependent (weight 3)
+  SC-07: Avoid same job type on consecutive working days per employee (weight 5)
+  SC-08: Cross-employee job type fairness within same qualification group (weight 2)
+         — employees with identical qualification sets should get similar job type counts
 """
 
 from ortools.sat.python import cp_model
@@ -197,9 +188,6 @@ def generate_schedule(
     # 半日勤務者はフル勤務できないため、職人/サブ職人には割り当てない
     from database import JobType
     hard_one_jt_ids = set()
-    # 「その他」のjob_type_idを取得（オーバーフロー先）
-    sono_ta_jt = db.query(JobType).filter(JobType.name == "その他").first()
-    sono_ta_jt_id = sono_ta_jt.id if sono_ta_jt else None
     for jt in db.query(JobType).filter(JobType.name.in_(["職人", "サブ職人"])).all():
         hard_one_jt_ids.add(jt.id)
     for d in working_dates:
@@ -212,17 +200,6 @@ def generate_schedule(
                 model.add(
                     sum(x[e_id, d, j] for e_id in emp_ids if j in emp_job_types.get(e_id, [])) == 1
                 )
-
-    # HC-04b: 日別必要人数が未設定の職種には配置しない（上限0扱い）
-    for d in working_dates:
-        reqs_for_day = daily_reqs.get(d, {})
-        for j in all_job_type_ids:
-            if j in hard_one_jt_ids:
-                continue  # 職人・サブ職人はHC-06で管理
-            if j not in reqs_for_day:
-                for e_id in emp_ids:
-                    if j in emp_job_types.get(e_id, []):
-                        model.add(x[e_id, d, j] == 0)
 
     # HC-07: Weekly work day limit per employee
     from collections import defaultdict
@@ -237,63 +214,27 @@ def generate_schedule(
             for week_key, week_dates in weeks.items():
                 model.add(sum(work[e_id, d] for d in week_dates) <= wlimit)
 
-    # HC-03: Daily requirements as upper limits with overflow to その他
-    # - 必要人数を上限とし、超過配置を禁止（ハード制約）
-    # - 不足分はペナルティ付きソフト制約で追跡
-    # - 他職種の不足分は「その他」の上限に加算（オーバーフロー）
+    # HC-03: Meet daily requirements (soft constraint with high penalty)
     # Using integer scaling: multiply by 2 for 0.5 support
     # Half-day workers contribute 1 unit (0.5), full-day workers contribute 2 units (1.0)
     violations = []
-    shortage_vars = []  # Track shortages for objective penalty: (var, job_type_id)
+    shortage_vars = []  # Track shortages for objective penalty
     for d in working_dates:
         if d not in daily_reqs:
             continue
-        day_overflow = []  # 他職種の不足分（その他にオーバーフロー）
         for j, req_count in daily_reqs[d].items():
             if j in hard_one_jt_ids:
                 continue  # Already enforced as hard constraint above
-            if j == sono_ta_jt_id:
-                continue  # その他はオーバーフロー集計後に処理
             scaled_req = int(req_count * 2)
             supply = sum(
                 x[e_id, d, j] * emp_hc_factor[e_id].get(d, 2)
                 for e_id in emp_ids
                 if j in emp_job_types.get(e_id, [])
             )
-            # Upper limit: 必要人数を超えて配置しない
-            model.add(supply <= scaled_req)
-            # Shortage tracking: 不足分をトラッキング
+            # Soft constraint: allow shortage but penalize heavily
             shortage = model.new_int_var(0, scaled_req, f"shortage_{d}_{j}")
-            model.add(shortage >= scaled_req - supply)
-            shortage_vars.append((shortage, j))
-            day_overflow.append(shortage)
-
-        # その他: 上限 = 基本要件 + 他職種の不足分（オーバーフロー）
-        if sono_ta_jt_id and sono_ta_jt_id in all_job_type_ids:
-            sono_ta_req = daily_reqs[d].get(sono_ta_jt_id, 0)
-            scaled_sono_ta_req = int(sono_ta_req * 2)
-            sono_ta_supply = sum(
-                x[e_id, d, sono_ta_jt_id] * emp_hc_factor[e_id].get(d, 2)
-                for e_id in emp_ids
-                if sono_ta_jt_id in emp_job_types.get(e_id, [])
-            )
-            # Upper limit with overflow
-            if day_overflow:
-                model.add(sono_ta_supply <= scaled_sono_ta_req + sum(day_overflow))
-                # Effective cap for shortage calculation
-                effective_cap = model.new_int_var(
-                    0, scaled_sono_ta_req + len(emp_ids) * 2, f"sonota_cap_{d}"
-                )
-                model.add(effective_cap == scaled_sono_ta_req + sum(day_overflow))
-            else:
-                model.add(sono_ta_supply <= scaled_sono_ta_req)
-                effective_cap = scaled_sono_ta_req
-            # Shortage for その他
-            sono_ta_shortage = model.new_int_var(
-                0, scaled_sono_ta_req + len(emp_ids) * 2, f"shortage_{d}_{sono_ta_jt_id}"
-            )
-            model.add(sono_ta_shortage >= effective_cap - sono_ta_supply)
-            shortage_vars.append((sono_ta_shortage, sono_ta_jt_id))
+            model.add(supply + shortage >= scaled_req)
+            shortage_vars.append(shortage)
 
     # Apply extra constraints from NLP modifications
     if extra_constraints:
@@ -317,46 +258,26 @@ def generate_schedule(
 
     objective_terms = []
 
-    # SC-01: Requested work days (Tier 1: full-time weight 50, Tier 3: dependent weight 8)
+    # SC-01: Requested work days
     # - "max": soft constraint to maximize work days
     # - numeric: hard upper limit constraint
-    # - full-time with no request: default to "max"
     for e_id in emp_ids:
         rw = emp_requested_work.get(e_id)
-        is_fulltime = emp_type[e_id] == "full_time"
-        work_day_weight = 50 if is_fulltime else 8  # Tier 1 vs Tier 3
         if rw == "max":
+            # Maximize work days: penalize non-working days
             not_work_count = model.new_int_var(0, scaled_total, f"not_work_{e_id}")
             model.add(not_work_count == scaled_total - emp_total_work[e_id])
-            objective_terms.append(not_work_count * work_day_weight)
+            objective_terms.append(not_work_count * 10)
         elif rw is not None:
             # Hard upper limit (scaled by 2)
             target = int(rw) * 2
             model.add(emp_total_work[e_id] <= target)
-        elif is_fulltime:
-            # フル勤務でリクエストなし → デフォルトでmax扱い
-            not_work_count = model.new_int_var(0, scaled_total, f"not_work_{e_id}")
-            model.add(not_work_count == scaled_total - emp_total_work[e_id])
-            objective_terms.append(not_work_count * work_day_weight)
 
-    # SC-09: 扶養内スタッフの最低出勤日数ターゲット（Tier 3, weight 8, デフォルト10日）
-    DEPENDENT_DEFAULT_TARGET = 10
-    for e_id in emp_ids:
-        if emp_type[e_id] != "dependent":
-            continue
-        rw = emp_requested_work.get(e_id)
-        if rw == "max":
-            continue  # 既存のSC-01で最大化される
-        # 目標日数: 数値指定があればその値、なければデフォルト10日
-        target_days = int(rw) if rw is not None else DEPENDENT_DEFAULT_TARGET
-        scaled_target = target_days * 2
-        # 目標との不足分をペナルティ（Tier 3: weight 8）
-        shortfall = model.new_int_var(0, scaled_total, f"dep_short_{e_id}")
-        model.add(shortfall >= scaled_target - emp_total_work[e_id])
-        objective_terms.append(shortfall * 8)
-
-    # SC-04: Job type balance per employee — pairwise
-    # Tier 2: full-time weight 10, Tier 4: dependent weight 2
+    # SC-04: Job type balance per employee — pairwise (weight 3 per pair)
+    # For each pair of job types an employee can do, penalize the absolute
+    # difference in assignment counts.  This pushes ALL types toward equal
+    # frequency, not just the extreme max/min pair.
+    # Job count variables are shared with SC-08 (cross-employee fairness).
     emp_job_counts: dict[int, dict[int, cp_model.IntVar]] = {}
     for e_id in emp_ids:
         allowed = emp_job_types.get(e_id, [])
@@ -370,17 +291,18 @@ def generate_schedule(
         emp_job_counts[e_id] = job_counts
         if len(allowed) <= 1:
             continue
-        balance_weight = 10 if emp_type[e_id] == "full_time" else 2  # Tier 2 vs Tier 4
         for i in range(len(allowed)):
             for k in range(i + 1, len(allowed)):
                 j1, j2 = allowed[i], allowed[k]
                 diff = model.new_int_var(0, total_working_dates, f"jcdiff_{e_id}_{j1}_{j2}")
                 model.add(diff >= job_counts[j1] - job_counts[j2])
                 model.add(diff >= job_counts[j2] - job_counts[j1])
-                objective_terms.append(diff * balance_weight)
+                objective_terms.append(diff * 3)
 
-    # SC-08: Cross-employee job type fairness within same qualification group
-    # Tier 2: full-time pairs weight 5, Tier 4: dependent pairs weight 1
+    # SC-08: Cross-employee job type fairness within same qualification group (weight 2)
+    # Group employees by their sorted set of qualified job type IDs.
+    # Within each group, for every pair of employees and every shared job type,
+    # penalize the absolute difference in assignment counts.
     from itertools import combinations
     qual_groups: dict[tuple[int, ...], list[int]] = {}
     for e_id in emp_ids:
@@ -392,9 +314,6 @@ def generate_schedule(
         if len(group_eids) <= 1:
             continue
         for e1, e2 in combinations(group_eids, 2):
-            # 両者がフル勤務ならTier 2、それ以外はTier 4
-            both_fulltime = emp_type[e1] == "full_time" and emp_type[e2] == "full_time"
-            fairness_weight = 5 if both_fulltime else 1
             for j in qual_key:
                 if j in emp_job_counts.get(e1, {}) and j in emp_job_counts.get(e2, {}):
                     diff = model.new_int_var(
@@ -402,17 +321,16 @@ def generate_schedule(
                     )
                     model.add(diff >= emp_job_counts[e1][j] - emp_job_counts[e2][j])
                     model.add(diff >= emp_job_counts[e2][j] - emp_job_counts[e1][j])
-                    objective_terms.append(diff * fairness_weight)
+                    objective_terms.append(diff * 2)
 
     # SC-05: Priority cost - prefer lower sort_order (1=職人, 2=サブ, 3=lkデータ, 4=uv/cpデータ, 5=手紙, 6=その他)
-    priority_weight = 2
+    priority_weight = 1
     for e_id in emp_ids:
         for d in working_dates:
             for j in all_job_type_ids:
                 objective_terms.append(x[e_id, d, j] * jt_sort_order.get(j, j) * priority_weight)
 
-    # SC-06: Prefer full-time employees over dependent (weight 3)
-    # 優先順位の差はウェイト階層(Tier 1-4)で主に処理済み
+    # SC-06: Prefer full-time employees over dependent
     for e_id in emp_ids:
         if emp_type[e_id] == "dependent":
             for d in working_dates:
@@ -431,13 +349,9 @@ def generate_schedule(
                 model.add(consec >= x[e_id, d1, j] + x[e_id, d2, j] - 1)
                 objective_terms.append(consec * 5)
 
-    # Penalty for requirement shortages — priority-weighted
-    # 優先順位の高い職種ほど不足ペナルティを大きくし、
-    # スタッフ不足時は優先順位の低い仕事から人数を減らす
-    max_sort = max(jt_sort_order.values()) if jt_sort_order else 6
-    for sv, j in shortage_vars:
-        priority_factor = max_sort + 1 - jt_sort_order.get(j, max_sort)
-        objective_terms.append(sv * 100 * priority_factor)
+    # Penalty for requirement shortages (very high weight to prioritize meeting requirements)
+    for sv in shortage_vars:
+        objective_terms.append(sv * 100)
 
     if objective_terms:
         model.minimize(sum(objective_terms))
