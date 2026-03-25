@@ -389,6 +389,8 @@ def generate_pdf(db: Session, month: str) -> bytes:
 
 def _try_register_japanese_font():
     """Try to register a Japanese font for PDF generation."""
+    import glob
+
     font_paths = [
         # Windows
         "C:/Windows/Fonts/msgothic.ttc",
@@ -396,10 +398,15 @@ def _try_register_japanese_font():
         # macOS
         "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
         "/Library/Fonts/Arial Unicode.ttf",
-        # Linux
+        # Linux (standard)
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     ]
+
+    # Nix store (Railway/nixpacks): search for Noto CJK fonts dynamically
+    nix_fonts = glob.glob("/nix/store/*/share/fonts/noto-cjk/*.ttc")
+    font_paths.extend(nix_fonts)
+
     for path in font_paths:
         if os.path.exists(path):
             try:
