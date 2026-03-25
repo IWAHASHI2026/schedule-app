@@ -391,7 +391,12 @@ def _try_register_japanese_font():
     """Try to register a Japanese font for PDF generation."""
     import glob
 
+    # Bundled font (most reliable - works in all environments)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    bundled_font = os.path.join(base_dir, "fonts", "NotoSansJP.ttf")
+
     font_paths = [
+        bundled_font,
         # Windows
         "C:/Windows/Fonts/msgothic.ttc",
         "C:/Windows/Fonts/meiryo.ttc",
