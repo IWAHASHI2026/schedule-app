@@ -24,7 +24,7 @@ Soft constraints (objective function) — 4段階の優先順位:
          - Full-time with no request = default to "max"
   [Tier 2] フル勤務の仕事バランス:
     SC-04: Job type balance per employee (full-time weight 10, dependent weight 2)
-    SC-08: Cross-employee fairness within same qualification group (full-time weight 5, dependent weight 1)
+    SC-08: Cross-employee fairness per job type across all qualified employees (full-time weight 5, dependent weight 1)
   [Tier 3] 扶養内の希望日数:
     SC-09: Dependent staff minimum work days target (weight 8, default 10 days)
   [Tier 4] 扶養内の仕事バランス: (SC-04, SC-08 の dependent weights)
@@ -379,30 +379,26 @@ def generate_schedule(
                 model.add(diff >= job_counts[j2] - job_counts[j1])
                 objective_terms.append(diff * balance_weight)
 
-    # SC-08: Cross-employee job type fairness within same qualification group
+    # SC-08: Cross-employee job type fairness — per job type across all qualified employees
     # Tier 2: full-time pairs weight 5, Tier 4: dependent pairs weight 1
+    # 各職種について、その職種を担当可能な全スタッフ間で公平性制約を作成
+    # （旧実装は完全一致の資格グループのみ対象だったため、1つでも資格が異なる
+    #   スタッフが孤立し、特定職種に偏る問題があった）
     from itertools import combinations
-    qual_groups: dict[tuple[int, ...], list[int]] = {}
-    for e_id in emp_ids:
-        key = tuple(sorted(emp_job_types.get(e_id, [])))
-        if not key:
+    for j in all_job_type_ids:
+        qualified = [e_id for e_id in emp_ids
+                     if j in emp_job_types.get(e_id, [])
+                     and j in emp_job_counts.get(e_id, {})]
+        if len(qualified) <= 1:
             continue
-        qual_groups.setdefault(key, []).append(e_id)
-    for qual_key, group_eids in qual_groups.items():
-        if len(group_eids) <= 1:
-            continue
-        for e1, e2 in combinations(group_eids, 2):
+        for e1, e2 in combinations(qualified, 2):
             # 両者がフル勤務ならTier 2、それ以外はTier 4
             both_fulltime = emp_type[e1] == "full_time" and emp_type[e2] == "full_time"
             fairness_weight = 5 if both_fulltime else 1
-            for j in qual_key:
-                if j in emp_job_counts.get(e1, {}) and j in emp_job_counts.get(e2, {}):
-                    diff = model.new_int_var(
-                        0, total_working_dates, f"sc08_{e1}_{e2}_{j}"
-                    )
-                    model.add(diff >= emp_job_counts[e1][j] - emp_job_counts[e2][j])
-                    model.add(diff >= emp_job_counts[e2][j] - emp_job_counts[e1][j])
-                    objective_terms.append(diff * fairness_weight)
+            diff = model.new_int_var(0, total_working_dates, f"sc08_{e1}_{e2}_{j}")
+            model.add(diff >= emp_job_counts[e1][j] - emp_job_counts[e2][j])
+            model.add(diff >= emp_job_counts[e2][j] - emp_job_counts[e1][j])
+            objective_terms.append(diff * fairness_weight)
 
     # SC-05: Priority cost - prefer lower sort_order (1=職人, 2=サブ, 3=lkデータ, 4=uv/cpデータ, 5=手紙, 6=その他)
     priority_weight = 2
