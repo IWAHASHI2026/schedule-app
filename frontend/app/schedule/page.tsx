@@ -135,7 +135,7 @@ export default function SchedulePage() {
                schedule.status === "confirmed" ? "確定" :
                schedule.status === "preview" ? "プレビュー" : "下書き"}
             </Badge>
-            {schedule.status === "preview" && (
+            {(schedule.status === "draft" || schedule.status === "preview") && (
               <Button onClick={() => handleStatus("confirmed")} size="sm">
                 <CheckCircle className="mr-2 h-4 w-4" />確定
               </Button>
