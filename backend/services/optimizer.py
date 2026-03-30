@@ -180,6 +180,12 @@ def generate_schedule(
             if d in emp_full_off[e_id]:
                 model.add(work[e_id, d] == 0)
 
+    # HC-01b: Half-day off -> must work the remaining half
+    for e_id in emp_ids:
+        for d in working_dates:
+            if d in emp_half_off[e_id]:
+                model.add(work[e_id, d] == 1)
+
     # HC-02: At most one job type per day (already implied by work = sum(x))
     for e_id in emp_ids:
         for d in working_dates:
