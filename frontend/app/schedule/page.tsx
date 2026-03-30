@@ -79,13 +79,13 @@ export default function SchedulePage() {
     setEditCell({ empId, date: dateStr });
   };
 
-  const handleAssign = async (jtId: number | null) => {
+  const handleAssign = async (jtId: number | null, workType?: string) => {
     if (!editCell || !schedule) return;
     await updateAssignments(schedule.id, [{
       employee_id: editCell.empId,
       date: editCell.date,
       job_type_id: jtId,
-      work_type: jtId ? "full" : "off",
+      work_type: jtId ? (workType || "full") : "off",
     }]);
     setEditCell(null);
     const asn = await getAssignments(schedule.id);
@@ -271,6 +271,22 @@ export default function SchedulePage() {
                     {jt.name}
                   </Button>
                 ))}
+                {(() => {
+                  const sonota = jobTypes.find((jt) => jt.name === "その他");
+                  if (!sonota) return null;
+                  return (
+                    <>
+                      <Button key="sonota-am" size="sm" variant="outline" onClick={() => handleAssign(sonota.id, "morning_half")}
+                        style={{ borderColor: sonota.color || undefined, color: sonota.color || undefined }}>
+                        その他 午前
+                      </Button>
+                      <Button key="sonota-pm" size="sm" variant="outline" onClick={() => handleAssign(sonota.id, "afternoon_half")}
+                        style={{ borderColor: sonota.color || undefined, color: sonota.color || undefined }}>
+                        その他 午後
+                      </Button>
+                    </>
+                  );
+                })()}
                 <Button size="sm" variant="ghost" onClick={() => handleAssign(null)}>休み</Button>
                 <Button size="sm" variant="ghost" onClick={() => setEditCell(null)}>キャンセル</Button>
               </div>
