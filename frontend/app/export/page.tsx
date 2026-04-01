@@ -114,7 +114,7 @@ export default function ExportPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              印刷用A3横レイアウトのPDFとしてダウンロードします。
+              印刷用A4横レイアウトのPDFとしてダウンロードします。
             </p>
             <Button onClick={() => handleDownload("pdf")} className="w-full">
               <Download className="mr-2 h-4 w-4" />

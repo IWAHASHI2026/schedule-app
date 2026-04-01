@@ -4,7 +4,7 @@ from datetime import date
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A3, landscape
+from reportlab.lib.pagesizes import A3, A4, landscape
 from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer
 from reportlab.pdfbase import pdfmetrics
@@ -261,11 +261,11 @@ def generate_pdf(db: Session, month: str) -> bytes:
     output = io.BytesIO()
     doc = SimpleDocTemplate(
         output,
-        pagesize=landscape(A3),
-        leftMargin=10 * mm,
-        rightMargin=10 * mm,
-        topMargin=10 * mm,
-        bottomMargin=10 * mm,
+        pagesize=landscape(A4),
+        leftMargin=8 * mm,
+        rightMargin=8 * mm,
+        topMargin=8 * mm,
+        bottomMargin=8 * mm,
     )
 
     # Try to register a Japanese font
@@ -313,15 +313,15 @@ def generate_pdf(db: Session, month: str) -> bytes:
         data.append(total_row)
 
         # Column widths
-        name_width = 50
-        available_width = landscape(A3)[0] - 20 * mm - name_width
-        day_width = max(12, available_width / len(date_slice))
+        name_width = 45
+        available_width = landscape(A4)[0] - 16 * mm - name_width
+        day_width = max(14, available_width / len(date_slice))
         col_widths = [name_width] + [day_width] * len(date_slice)
 
         table = Table(data, colWidths=col_widths, repeatRows=1)
 
         style_cmds = [
-            ('FONTSIZE', (0, 0), (-1, -1), 6),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
