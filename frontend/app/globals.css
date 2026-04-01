@@ -39,8 +39,18 @@
   nav { display: none !important; }
   /* mainのマージンを解除 */
   main { margin-left: 0 !important; padding: 0 !important; }
+  /* bodyのoverflow制限を解除（Radixダイアログが設定する） */
+  body {
+    overflow: visible !important;
+    position: static !important;
+  }
   /* ダイアログオーバーレイ(黒背景)を非表示 */
   [data-radix-dialog-overlay] { display: none !important; }
+  /* ポータルコンテナを通常フローに変更 */
+  [data-radix-portal] {
+    position: static !important;
+    overflow: visible !important;
+  }
   /* ダイアログコンテンツをfixedから通常フローに変更 */
   [data-radix-dialog-content] {
     position: static !important;
@@ -48,8 +58,10 @@
     max-height: none !important;
     overflow: visible !important;
     max-width: 100% !important;
+    width: 100% !important;
     border: none !important;
     box-shadow: none !important;
     padding: 1rem !important;
+    margin: 0 !important;
   }
 }

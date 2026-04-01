@@ -358,7 +358,7 @@ export default function StaffPage() {
 
       {printMode && (
         <Dialog open={printMode} onOpenChange={setPrintMode}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto print:max-h-none print:overflow-visible">
             <DialogHeader>
               <DialogTitle>{linkYear}年{linkMon}月シフト — 全員QRコード（印刷用）</DialogTitle>
             </DialogHeader>
