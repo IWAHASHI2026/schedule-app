@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Globe } from "lucide-react";
+import { CheckCircle, Globe, Save } from "lucide-react";
 import {
   getEmployees, getJobTypes, getSchedules, getAssignments, getHolidays, getRequests,
   updateAssignments, updateScheduleStatus, getJobTypeAbbr,
@@ -24,6 +24,8 @@ export default function SchedulePage() {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [editCell, setEditCell] = useState<{ empId: number; date: string } | null>(null);
   const [requestedDaysOff, setRequestedDaysOff] = useState<Record<number, Set<string>>>({});
+  const [pendingChanges, setPendingChanges] = useState<Record<string, { employee_id: number; date: string; job_type_id: number | null; work_type: string }>>({});
+  const [saving, setSaving] = useState(false);
 
   const load = async () => {
     const [emps, jts, scheds, hols, shiftRequests] = await Promise.all([
@@ -58,7 +60,7 @@ export default function SchedulePage() {
     }
   };
 
-  useEffect(() => { load(); }, [month]);
+  useEffect(() => { load(); setPendingChanges({}); }, [month]);
 
   const [calYear, calMonth] = month.split("-").map(Number);
   const daysInMonth = new Date(calYear, calMonth, 0).getDate();
@@ -79,18 +81,59 @@ export default function SchedulePage() {
     setEditCell({ empId, date: dateStr });
   };
 
-  const handleAssign = async (jtId: number | null, workType?: string) => {
+  const handleAssign = (jtId: number | null, workType?: string) => {
     if (!editCell || !schedule) return;
-    await updateAssignments(schedule.id, [{
-      employee_id: editCell.empId,
-      date: editCell.date,
-      job_type_id: jtId,
-      work_type: jtId ? (workType || "full") : (workType || "adjusted_off"),
-    }]);
+    const wt = jtId ? (workType || "full") : (workType || "adjusted_off");
+    const key = `${editCell.empId}_${editCell.date}`;
+
+    // Store pending change
+    setPendingChanges((prev) => ({
+      ...prev,
+      [key]: { employee_id: editCell.empId, date: editCell.date, job_type_id: jtId, work_type: wt },
+    }));
+
+    // Update local assignments for instant UI feedback
+    const jt = jtId ? jobTypes.find((j) => j.id === jtId) : null;
+    const isOff = !jtId;
+    const hv = isOff ? 0 : (wt === "morning_half" || wt === "afternoon_half" ? 0.5 : 1.0);
+    setAssignments((prev) => {
+      const idx = prev.findIndex((a) => a.employee_id === editCell.empId && a.date === editCell.date);
+      const updated: ShiftAssignment = {
+        id: idx >= 0 ? prev[idx].id : 0,
+        schedule_id: schedule.id,
+        employee_id: editCell.empId,
+        employee_name: prev[idx]?.employee_name || "",
+        date: editCell.date,
+        job_type_id: jtId,
+        job_type_name: jt?.name || null,
+        job_type_color: jt?.color || null,
+        work_type: wt,
+        headcount_value: hv,
+      };
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = updated;
+        return next;
+      }
+      return [...prev, updated];
+    });
     setEditCell(null);
-    const asn = await getAssignments(schedule.id);
-    setAssignments(asn);
   };
+
+  const handleSave = async () => {
+    if (!schedule || Object.keys(pendingChanges).length === 0) return;
+    setSaving(true);
+    try {
+      await updateAssignments(schedule.id, Object.values(pendingChanges));
+      setPendingChanges({});
+      const asn = await getAssignments(schedule.id);
+      setAssignments(asn);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const hasPendingChanges = Object.keys(pendingChanges).length > 0;
 
   const handleStatus = async (status: string) => {
     if (!schedule) return;
@@ -106,16 +149,17 @@ export default function SchedulePage() {
   };
 
   // Daily total (all job types)
+  const offTypes = new Set(["off", "requested_off", "adjusted_off"]);
   const getDailyTotal = (dateStr: string) => {
     return assignments
-      .filter((a) => a.date === dateStr && a.work_type !== "off")
+      .filter((a) => a.date === dateStr && !offTypes.has(a.work_type))
       .reduce((sum, a) => sum + a.headcount_value, 0);
   };
 
   // Staff total work days
   const getStaffTotal = (empId: number) => {
     return assignments
-      .filter((a) => a.employee_id === empId && a.work_type !== "off")
+      .filter((a) => a.employee_id === empId && !offTypes.has(a.work_type))
       .reduce((sum, a) => sum + a.headcount_value, 0);
   };
 
@@ -127,6 +171,11 @@ export default function SchedulePage() {
         <h1 className="text-2xl font-bold">シフト表</h1>
         {schedule && (
           <div className="flex items-center gap-2">
+            {hasPendingChanges && (
+              <Button onClick={handleSave} size="sm" variant="default" disabled={saving}>
+                <Save className="mr-2 h-4 w-4" />{saving ? "保存中..." : `保存（${Object.keys(pendingChanges).length}件）`}
+              </Button>
+            )}
             <Badge variant={
               schedule.status === "published" ? "success" :
               schedule.status === "confirmed" ? "default" : "secondary"
@@ -193,13 +242,14 @@ export default function SchedulePage() {
                         const dow = new Date(d).getDay();
                         const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
                         const isEditing = editCell?.empId === emp.id && editCell?.date === d;
+                        const isPending = `${emp.id}_${d}` in pendingChanges;
                         const isOff = a?.work_type === "off" || a?.work_type === "requested_off" || a?.work_type === "adjusted_off";
                         const isRequested = a?.work_type === "requested_off" || (a?.work_type === "off" && requestedDaysOff[emp.id]?.has(d));
                         return (
                           <td
                             key={d}
                             onClick={() => handleCellClick(emp.id, d)}
-                            className={`px-1 py-1 border text-center cursor-pointer hover:ring-2 hover:ring-blue-300 ${isNW ? "bg-gray-100" : ""} ${isEditing ? "ring-2 ring-blue-500" : ""}`}
+                            className={`px-1 py-1 border text-center cursor-pointer hover:ring-2 hover:ring-blue-300 ${isNW ? "bg-gray-100" : ""} ${isEditing ? "ring-2 ring-blue-500" : ""} ${isPending ? "ring-2 ring-orange-400" : ""}`}
                             style={
                               a?.job_type_color && !isOff
                                 ? { backgroundColor: a.job_type_color + "30" }
