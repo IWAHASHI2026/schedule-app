@@ -6,7 +6,7 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A3, A4, landscape
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, PageBreak
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from sqlalchemy.orm import Session
@@ -271,6 +271,7 @@ def generate_pdf(db: Session, month: str) -> bytes:
     # Try to register a Japanese font
     _try_register_japanese_font()
     font_name = _get_japanese_font_name()
+    bold_font_name = _get_japanese_bold_font_name()
 
     weekday_names = ["月", "火", "水", "木", "金", "土", "日"]
 
@@ -328,10 +329,11 @@ def generate_pdf(db: Session, month: str) -> bytes:
             ('BACKGROUND', (0, 0), (-1, 0), colors.Color(0.9, 0.9, 0.9)),
         ]
 
-        # Use Japanese font if available
-        if font_name:
+        # Use Japanese bold font for all cells
+        if bold_font_name:
+            style_cmds.append(('FONTNAME', (0, 0), (-1, -1), bold_font_name))
+        elif font_name:
             style_cmds.append(('FONTNAME', (0, 0), (-1, -1), font_name))
-            style_cmds.append(('FONTNAME', (0, 0), (-1, 0), font_name))
         else:
             style_cmds.append(('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'))
 
@@ -381,7 +383,11 @@ def generate_pdf(db: Session, month: str) -> bytes:
 
         table.setStyle(TableStyle(style_cmds))
         elements.append(table)
-        elements.append(Spacer(1, 8 * mm))
+        elements.append(PageBreak())
+
+    # Remove trailing PageBreak after last table
+    if elements and isinstance(elements[-1], PageBreak):
+        elements.pop()
 
     doc.build(elements)
     return output.getvalue()
@@ -408,14 +414,38 @@ def _try_register_japanese_font():
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     ]
 
+    # Bold font paths
+    bundled_bold = os.path.join(base_dir, "fonts", "NotoSansJP-Bold.ttf")
+    bold_font_paths = [
+        bundled_bold,
+        # Windows
+        "C:/Windows/Fonts/msgothic.ttc",
+        "C:/Windows/Fonts/meiryob.ttc",
+        # macOS
+        "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+        # Linux (standard)
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    ]
+
     # Nix store (Railway/nixpacks): search for Noto CJK fonts dynamically
     nix_fonts = glob.glob("/nix/store/*/share/fonts/noto-cjk/*.ttc")
     font_paths.extend(nix_fonts)
+    bold_font_paths.extend(nix_fonts)
 
     for path in font_paths:
         if os.path.exists(path):
             try:
                 pdfmetrics.registerFont(TTFont("JapaneseFont", path))
+                break
+            except Exception:
+                continue
+
+    # Register bold variant
+    for path in bold_font_paths:
+        if os.path.exists(path):
+            try:
+                pdfmetrics.registerFont(TTFont("JapaneseFontBold", path))
                 return
             except Exception:
                 continue
@@ -428,3 +458,12 @@ def _get_japanese_font_name() -> str | None:
         return "JapaneseFont"
     except KeyError:
         return None
+
+
+def _get_japanese_bold_font_name() -> str | None:
+    """Return registered Japanese bold font name if available."""
+    try:
+        pdfmetrics.getFont("JapaneseFontBold")
+        return "JapaneseFontBold"
+    except KeyError:
+        return _get_japanese_font_name()
