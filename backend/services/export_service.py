@@ -67,7 +67,7 @@ def _get_schedule_data(db: Session, month: str):
     for a in assignments:
         if a.employee_id not in matrix:
             matrix[a.employee_id] = {}
-        if a.job_type_id and a.work_type != "off":
+        if a.job_type_id and a.work_type not in ("off", "requested_off", "adjusted_off"):
             name = jt_map.get(a.job_type_id, "")
             if a.work_type == "morning_half":
                 name += "(午前)"
@@ -78,7 +78,7 @@ def _get_schedule_data(db: Session, month: str):
             summary[a.job_type_id][a.date] += a.headcount_value
             daily_totals[a.date] += a.headcount_value
         else:
-            if (a.employee_id, a.date) in requested_off:
+            if a.work_type == "requested_off" or (a.employee_id, a.date) in requested_off:
                 matrix[a.employee_id][a.date] = "希休"
             else:
                 matrix[a.employee_id][a.date] = "調休"

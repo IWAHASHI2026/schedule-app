@@ -99,7 +99,7 @@ def update_assignments(
         if existing:
             existing.job_type_id = item.job_type_id
             existing.work_type = item.work_type
-            if item.work_type == "off":
+            if item.work_type in ("off", "requested_off", "adjusted_off"):
                 existing.headcount_value = 0
             elif item.work_type in ("morning_half", "afternoon_half"):
                 existing.headcount_value = 0.5

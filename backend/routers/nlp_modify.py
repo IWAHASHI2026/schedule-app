@@ -31,7 +31,7 @@ def nlp_modify(schedule_id: int, body: NlpModifyRequest, db: Session = Depends(g
     # Summary (aggregate counts per employee)
     summary_lines = []
     for emp in employees:
-        emp_assignments = [a for a in assignments if a.employee_id == emp.id and a.work_type != "off"]
+        emp_assignments = [a for a in assignments if a.employee_id == emp.id and a.work_type not in ("off", "requested_off", "adjusted_off")]
         jt_counts: dict[str, int] = {}
         for a in emp_assignments:
             jt_name = jt_map.get(a.job_type_id, "不明")
@@ -49,7 +49,7 @@ def nlp_modify(schedule_id: int, body: NlpModifyRequest, db: Session = Depends(g
         )
         day_parts = []
         for a in emp_assignments:
-            if a.work_type == "off" or a.job_type_id is None:
+            if a.work_type in ("off", "requested_off", "adjusted_off") or a.job_type_id is None:
                 day_parts.append(f"{a.date.month}/{a.date.day}=休み")
             else:
                 jt_name = jt_map.get(a.job_type_id, "不明")

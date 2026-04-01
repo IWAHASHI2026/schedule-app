@@ -85,7 +85,7 @@ export default function SchedulePage() {
       employee_id: editCell.empId,
       date: editCell.date,
       job_type_id: jtId,
-      work_type: jtId ? (workType || "full") : "off",
+      work_type: jtId ? (workType || "full") : (workType || "adjusted_off"),
     }]);
     setEditCell(null);
     const asn = await getAssignments(schedule.id);
@@ -193,8 +193,8 @@ export default function SchedulePage() {
                         const dow = new Date(d).getDay();
                         const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
                         const isEditing = editCell?.empId === emp.id && editCell?.date === d;
-                        const isOff = a?.work_type === "off";
-                        const isRequested = requestedDaysOff[emp.id]?.has(d);
+                        const isOff = a?.work_type === "off" || a?.work_type === "requested_off" || a?.work_type === "adjusted_off";
+                        const isRequested = a?.work_type === "requested_off" || (a?.work_type === "off" && requestedDaysOff[emp.id]?.has(d));
                         return (
                           <td
                             key={d}
@@ -287,7 +287,10 @@ export default function SchedulePage() {
                     </>
                   );
                 })()}
-                <Button size="sm" variant="ghost" onClick={() => handleAssign(null)}>休み</Button>
+                <Button size="sm" variant="ghost" onClick={() => handleAssign(null, "requested_off")}
+                  style={{ color: "#7C3AED" }}>希望休</Button>
+                <Button size="sm" variant="ghost" onClick={() => handleAssign(null, "adjusted_off")}
+                  style={{ color: "#64748B" }}>調整休</Button>
                 <Button size="sm" variant="ghost" onClick={() => setEditCell(null)}>キャンセル</Button>
               </div>
             )}

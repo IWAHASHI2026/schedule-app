@@ -93,8 +93,9 @@ def get_report(month: str, db: Session = Depends(get_db)):
 
     for emp in employees:
         emp_assignments = [a for a in assignments if a.employee_id == emp.id]
-        work_assignments = [a for a in emp_assignments if a.work_type != "off"]
-        off_assignments = [a for a in emp_assignments if a.work_type == "off"]
+        off_types = ("off", "requested_off", "adjusted_off")
+        work_assignments = [a for a in emp_assignments if a.work_type not in off_types]
+        off_assignments = [a for a in emp_assignments if a.work_type in off_types]
 
         total_work = sum(a.headcount_value for a in work_assignments)
         total_off = len([a for a in off_assignments if not is_non_working_day(a.date)])
