@@ -6,7 +6,8 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A3, A4, landscape
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, PageBreak, Paragraph
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from sqlalchemy.orm import Session
@@ -284,9 +285,25 @@ def generate_pdf(db: Session, month: str) -> bytes:
         "その他": colors.Color(1.0, 0.83, 0.23),
     }
 
+    # Year-month title style
+    year = int(month.split("-")[0])
+    mon = int(month.split("-")[1])
+    title_text = f"{year}年{mon}月"
+    title_font = bold_font_name or font_name or "Helvetica-Bold"
+    title_style = ParagraphStyle(
+        "Title",
+        fontName=title_font,
+        fontSize=14,
+        leading=18,
+        spaceAfter=4 * mm,
+    )
+
     elements = []
 
     for date_slice in [first_half, second_half]:
+        # Add year-month title
+        elements.append(Paragraph(title_text, title_style))
+
         # Build header
         header = [""] + [f"{d.day}\n{weekday_names[d.weekday()]}" for d in date_slice]
         data = [header]
