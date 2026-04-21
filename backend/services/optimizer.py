@@ -1,20 +1,23 @@
 """
 Shift scheduling optimizer using Google OR-Tools CP-SAT solver.
 
-Hard constraints:
-  HC-01: Requested days off are always respected
+Hard constraints（違反不可）:
+  HC-01: Requested full-day off is always respected
          - Full day off (am+pm): employee cannot work
-         - Half day off (am or pm only): employee can work with headcount 0.5
   HC-02: One job type per employee per day
-  HC-03: Daily required headcount per job type — upper limit + shortage penalty
-         - 必要人数を上限とし、超過配置を禁止
+  HC-03 上限: 日別必要人数を上限とし、超過配置を禁止
          - 不足分は「その他」の上限に加算（オーバーフロー）
+         - 不足自体はソフト（ペナルティ）
   HC-04: Only assign job types the employee is qualified for
-  HC-04b: 日別必要人数が未設定の職種には配置しない（上限0扱い）
   HC-05: No work on weekends/holidays
-  HC-06: 職人・サブ職人 are each assigned exactly 1 person per working day
-         (half-day workers are excluded from these roles)
-  HC-07: Weekly work day limit per employee (if set)
+  HC-06 上限/半日排除: 職人・サブ職人は各営業日に最大1名、半日勤務者は割当不可
+
+Soft-hard constraints（可能な限り守るが、不可能なら違反として記録）:
+  HC-01b: 半日休の日は残り半分を出勤（penalty 1,000,000）
+  HC-06 下限: 職人・サブ職人は各営業日に1名配置（penalty 1,000,000）
+  HC-04b: 日別必要人数未設定の職種への配置禁止（penalty 100,000）
+  HC-07:  週出勤日数上限（penalty 500,000 per 超過日）
+  → 違反時は violations リストに日本語メッセージとして追加
 
 Soft constraints (objective function) — 4段階の優先順位:
   [Tier 1] フル勤務の希望日数:
@@ -180,11 +183,21 @@ def generate_schedule(
             if d in emp_full_off[e_id]:
                 model.add(work[e_id, d] == 0)
 
-    # HC-01b: Half-day off -> must work the remaining half
+    # 違反追跡用のslack変数（常に強制生成できるようソフト化されたハード制約）
+    hc01b_violations: list = []  # [(slack_var, e_id, d)]
+    hc06_violations: list = []   # [(slack_var, d, j)]
+    hc04b_violations: list = []  # [(slack_var, e_id, d, j)]
+    hc07_violations: list = []   # [(over_var, e_id, week_key, wlimit, week_dates)]
+
+    # HC-01b (SOFT): Half-day off -> should work the remaining half
+    # 強制生成のためソフト化。違反時は大ペナルティ。
     for e_id in emp_ids:
         for d in working_dates:
             if d in emp_half_off[e_id]:
-                model.add(work[e_id, d] == 1)
+                v = model.new_bool_var(f"viol_hc01b_{e_id}_{d.isoformat()}")
+                # work==1 OR v==1
+                model.add(work[e_id, d] + v >= 1)
+                hc01b_violations.append((v, e_id, d))
 
     # HC-02: At most one job type per day (already implied by work = sum(x))
     for e_id in emp_ids:
@@ -199,8 +212,10 @@ def generate_schedule(
                 if j not in allowed:
                     model.add(x[e_id, d, j] == 0)
 
-    # HC-06: 職人・サブ職人は各営業日に必ず1名ずつ配置（ハード制約）
-    # 半日勤務者はフル勤務できないため、職人/サブ職人には割り当てない
+    # HC-06: 職人・サブ職人は各営業日に1名配置
+    # - 上限1: ハード（超過禁止）
+    # - 下限1: ソフト（0名時は違反として記録）
+    # - 半日勤務者の配置禁止: ハード（業務ルール）
     from database import JobType
     hard_one_jt_ids = set()
     # 「その他」のjob_type_idを取得（オーバーフロー先）
@@ -211,15 +226,22 @@ def generate_schedule(
     for d in working_dates:
         for j in hard_one_jt_ids:
             if j in all_job_type_ids:
-                # 半日勤務者はこの職種に割り当てない
+                # 半日勤務者はこの職種に割り当てない（ハード維持）
                 for e_id in emp_ids:
                     if d in emp_half_off[e_id] and j in emp_job_types.get(e_id, []):
                         model.add(x[e_id, d, j] == 0)
-                model.add(
-                    sum(x[e_id, d, j] for e_id in emp_ids if j in emp_job_types.get(e_id, [])) == 1
+                total = sum(
+                    x[e_id, d, j] for e_id in emp_ids if j in emp_job_types.get(e_id, [])
                 )
+                # 上限: ハード
+                model.add(total <= 1)
+                # 下限: ソフト（0のときはv=1）
+                v = model.new_bool_var(f"viol_hc06_{d.isoformat()}_{j}")
+                model.add(total + v >= 1)
+                hc06_violations.append((v, d, j))
 
-    # HC-04b: 日別必要人数が未設定の職種には配置しない（上限0扱い）
+    # HC-04b (SOFT): 必要人数未設定職種への配置
+    # 強制生成のためソフト化。通常は配置しない（ペナルティあり）。
     for d in working_dates:
         reqs_for_day = daily_reqs.get(d, {})
         for j in all_job_type_ids:
@@ -228,9 +250,13 @@ def generate_schedule(
             if j not in reqs_for_day:
                 for e_id in emp_ids:
                     if j in emp_job_types.get(e_id, []):
-                        model.add(x[e_id, d, j] == 0)
+                        v = model.new_bool_var(f"viol_hc04b_{e_id}_{d.isoformat()}_{j}")
+                        # x==1 の場合は v==1 にする
+                        model.add(x[e_id, d, j] <= v)
+                        hc04b_violations.append((v, e_id, d, j))
 
-    # HC-07: Weekly work day limit per employee
+    # HC-07 (SOFT): Weekly work day limit per employee
+    # 強制生成のためソフト化。超過分をペナルティ。
     from collections import defaultdict
     weeks: dict[tuple[int, int], list[date]] = defaultdict(list)
     for d in working_dates:
@@ -241,7 +267,11 @@ def generate_schedule(
         wlimit = emp_weekly_limit.get(e_id)
         if wlimit is not None:
             for week_key, week_dates in weeks.items():
-                model.add(sum(work[e_id, d] for d in week_dates) <= wlimit)
+                over = model.new_int_var(
+                    0, len(week_dates), f"over_hc07_{e_id}_{week_key[0]}_{week_key[1]}"
+                )
+                model.add(sum(work[e_id, d] for d in week_dates) - wlimit <= over)
+                hc07_violations.append((over, e_id, week_key, wlimit, week_dates))
 
     # HC-03: Daily requirements as upper limits with overflow to その他
     # - 必要人数を上限とし、超過配置を禁止（ハード制約）
@@ -441,6 +471,22 @@ def generate_schedule(
         priority_factor = max_sort + 1 - jt_sort_order.get(j, max_sort)
         objective_terms.append(sv * 100 * priority_factor)
 
+    # 強制生成のためソフト化したハード制約の違反には大ペナルティを付与
+    # （他のソフト制約ペナルティ ~700/unit より十分大きい値で、
+    #   可能な限り満たされるが不可能時は緩和される）
+    HC01B_PENALTY = 1_000_000
+    HC06_PENALTY = 1_000_000
+    HC04B_PENALTY = 100_000
+    HC07_PENALTY = 500_000
+    for v, _, _ in hc01b_violations:
+        objective_terms.append(v * HC01B_PENALTY)
+    for v, _, _ in hc06_violations:
+        objective_terms.append(v * HC06_PENALTY)
+    for v, _, _, _ in hc04b_violations:
+        objective_terms.append(v * HC04B_PENALTY)
+    for over, _, _, _, _ in hc07_violations:
+        objective_terms.append(over * HC07_PENALTY)
+
     if objective_terms:
         model.minimize(sum(objective_terms))
 
@@ -560,6 +606,43 @@ def generate_schedule(
                 violations.append(
                     f"{d.month}月{d.day}日（{dow}）: {jt_name}が{shortage:g}名不足（必要{req_str}名、配置{actual_str}名）"
                 )
+
+    # ソフト化したハード制約の違反を抽出
+    for v, e_id, d in hc01b_violations:
+        if solver.value(v) == 1:
+            dow = dow_names[d.weekday()]
+            violations.append(
+                f"{d.month}月{d.day}日（{dow}）: "
+                f"{emp_names[e_id]}の半日休の残り半分を出勤にできませんでした（HC-01b）"
+            )
+    for v, d, j in hc06_violations:
+        if solver.value(v) == 1:
+            dow = dow_names[d.weekday()]
+            jt_name = jt_name_map.get(j, f"職種{j}")
+            violations.append(
+                f"{d.month}月{d.day}日（{dow}）: "
+                f"{jt_name}に1名配置できませんでした（HC-06）"
+            )
+    hc04b_by_emp_day: dict[tuple, list[str]] = {}
+    for v, e_id, d, j in hc04b_violations:
+        if solver.value(v) == 1:
+            jt_name = jt_name_map.get(j, f"職種{j}")
+            hc04b_by_emp_day.setdefault((e_id, d), []).append(jt_name)
+    for (e_id, d), jt_names in hc04b_by_emp_day.items():
+        dow = dow_names[d.weekday()]
+        violations.append(
+            f"{d.month}月{d.day}日（{dow}）: "
+            f"{emp_names[e_id]}を必要人数未設定の{'・'.join(jt_names)}に配置しました（HC-04b）"
+        )
+    for over, e_id, week_key, wlimit, week_dates in hc07_violations:
+        overflow = solver.value(over)
+        if overflow > 0:
+            first = week_dates[0]
+            last = week_dates[-1]
+            violations.append(
+                f"{first.month}月{first.day}日〜{last.month}月{last.day}日: "
+                f"{emp_names[e_id]}の週上限{wlimit}日を{overflow}日超過しました（HC-07）"
+            )
 
     return schedule.id, assignments, violations
 
