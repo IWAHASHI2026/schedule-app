@@ -453,6 +453,7 @@ def generate_schedule(
         reasons = _diagnose_infeasibility(
             emp_ids, emp_names, emp_job_types, emp_full_off, emp_half_off,
             working_dates, hard_one_jt_ids, all_job_type_ids, db,
+            daily_reqs, emp_weekly_limit,
         )
         if reasons:
             msg = "スケジュールを生成できませんでした。以下の問題が見つかりました:\n" + "\n".join(reasons)
@@ -566,9 +567,11 @@ def generate_schedule(
 def _diagnose_infeasibility(
     emp_ids, emp_names, emp_job_types, emp_full_off, emp_half_off,
     working_dates, hard_one_jt_ids, all_job_type_ids, db,
+    daily_reqs, emp_weekly_limit,
 ) -> list[str]:
     """ソルバー失敗時の原因を診断し、日本語メッセージのリストを返す。"""
     from database import JobType
+    from collections import defaultdict
     reasons = []
     dow_names = ["月", "火", "水", "木", "金", "土", "日"]
     jt_name_map = {jt.id: jt.name for jt in db.query(JobType).all()}
@@ -630,6 +633,94 @@ def _diagnose_infeasibility(
         if len(qualified) == 0:
             jt_name = jt_name_map.get(j, f"職種{j}")
             reasons.append(f"「{jt_name}」に資格のあるスタッフが登録されていません")
+
+    # チェック4: HC-01b × HC-06 — 半日休なのに担当可能職種が職人/サブ職人のみ
+    for e_id in emp_ids:
+        allowed = set(emp_job_types.get(e_id, []))
+        non_hard = allowed - hard_one_jt_ids
+        if non_hard:
+            continue  # 他の職種でカバー可能
+        if not (allowed & hard_one_jt_ids):
+            continue  # そもそも職人/サブ職人も担当不可（チェック3で扱う）
+        for d, _ in emp_half_off[e_id].items():
+            if d not in working_dates:
+                continue
+            dow = dow_names[d.weekday()]
+            reasons.append(
+                f"{d.month}月{d.day}日（{dow}）: "
+                f"{emp_names[e_id]}は半日休ですが、担当可能な職種が"
+                f"職人・サブ職人のみのため配置できません（HC-01b × HC-06）"
+            )
+
+    # チェック5: HC-01b × HC-04b — 半日休なのにその日に必要人数設定のある担当可能職種が無い
+    for e_id in emp_ids:
+        allowed = set(emp_job_types.get(e_id, [])) - hard_one_jt_ids
+        if not allowed:
+            continue  # チェック4で扱う
+        for d, _ in emp_half_off[e_id].items():
+            if d not in working_dates:
+                continue
+            reqs_for_day = daily_reqs.get(d, {})
+            assignable = allowed & set(reqs_for_day.keys())
+            if not assignable:
+                dow = dow_names[d.weekday()]
+                allowed_names = [jt_name_map.get(j, f"職種{j}") for j in sorted(allowed)]
+                reasons.append(
+                    f"{d.month}月{d.day}日（{dow}）: "
+                    f"{emp_names[e_id]}は半日休ですが、その日の必要人数設定に"
+                    f"担当可能な職種（{', '.join(allowed_names)}）が含まれていないため配置できません"
+                    f"（HC-01b × HC-04b）"
+                )
+
+    # チェック6: HC-01b × HC-07 — 週上限より半日休の強制出勤日数が多い
+    weeks: dict[tuple[int, int], list] = defaultdict(list)
+    for d in working_dates:
+        iso_year, iso_week, _ = d.isocalendar()
+        weeks[(iso_year, iso_week)].append(d)
+    for e_id in emp_ids:
+        wlimit = emp_weekly_limit.get(e_id)
+        if wlimit is None:
+            continue
+        for week_key, week_dates in weeks.items():
+            forced = [d for d in week_dates if d in emp_half_off[e_id]]
+            if len(forced) > wlimit:
+                range_str = f"{forced[0].month}月{forced[0].day}日〜{forced[-1].month}月{forced[-1].day}日"
+                reasons.append(
+                    f"{range_str}: {emp_names[e_id]}は週上限{wlimit}日に対して"
+                    f"半日休による出勤強制が{len(forced)}日あります（HC-01b × HC-07）"
+                )
+
+    # チェック7: 必要人数に対して利用可能資格者が不足している日・職種
+    for d in working_dates:
+        reqs_for_day = daily_reqs.get(d, {})
+        for j, req_count in reqs_for_day.items():
+            if j in hard_one_jt_ids:
+                continue  # HC-06 側で扱う
+            if req_count <= 0:
+                continue
+            avail_full = 0
+            avail_half = 0
+            for e_id in emp_ids:
+                if j not in emp_job_types.get(e_id, []):
+                    continue
+                if d in emp_full_off[e_id]:
+                    continue
+                if d in emp_half_off[e_id]:
+                    avail_half += 1
+                else:
+                    avail_full += 1
+            # 半日勤務は 0.5 人分として計算
+            capacity = avail_full + avail_half * 0.5
+            if capacity < req_count:
+                dow = dow_names[d.weekday()]
+                jt_name = jt_name_map.get(j, f"職種{j}")
+                req_str = int(req_count) if req_count == int(req_count) else req_count
+                cap_str = int(capacity) if capacity == int(capacity) else capacity
+                reasons.append(
+                    f"{d.month}月{d.day}日（{dow}）: "
+                    f"{jt_name}は必要{req_str}名ですが、利用可能な資格者が"
+                    f"{cap_str}名分しかいません（フル{avail_full}名＋半日{avail_half}名）"
+                )
 
     return reasons
 
