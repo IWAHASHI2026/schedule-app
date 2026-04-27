@@ -113,8 +113,9 @@ function SharePageContent() {
 
   const getSummary = (dateStr: string, jtId: number) =>
     assignments.filter((a) => a.date === dateStr && a.job_type_id === jtId).reduce((s, a) => s + a.headcount_value, 0);
+  const offTypes = new Set(["off", "requested_off", "adjusted_off"]);
   const getDailyTotal = (dateStr: string) =>
-    assignments.filter((a) => a.date === dateStr && a.work_type !== "off").reduce((s, a) => s + a.headcount_value, 0);
+    assignments.filter((a) => a.date === dateStr && !offTypes.has(a.work_type)).reduce((s, a) => s + a.headcount_value, 0);
 
   const dowNames = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -160,8 +161,8 @@ function SharePageContent() {
                       const a = assignmentMap[`${emp.id}_${d}`];
                       const dow = new Date(d).getDay();
                       const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
-                      const isOff = a?.work_type === "off";
-                      const isRequested = requestedDaysOff[emp.id]?.has(d);
+                      const isOff = a?.work_type === "off" || a?.work_type === "requested_off" || a?.work_type === "adjusted_off";
+                      const isRequested = a?.work_type === "requested_off" || (a?.work_type === "off" && requestedDaysOff[emp.id]?.has(d));
                       return (
                         <td
                           key={d}

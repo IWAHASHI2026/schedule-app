@@ -279,8 +279,8 @@ export default function GeneratePage() {
                         );
                         const dow = new Date(d).getDay();
                         const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
-                        const isOff = a?.work_type === "off";
-                        const isRequested = requestedDaysOff[emp.id]?.has(d);
+                        const isOff = a?.work_type === "off" || a?.work_type === "requested_off" || a?.work_type === "adjusted_off";
+                        const isRequested = a?.work_type === "requested_off" || (a?.work_type === "off" && requestedDaysOff[emp.id]?.has(d));
                         return (
                           <td
                             key={d}
