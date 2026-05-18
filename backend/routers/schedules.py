@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from database import get_db, Schedule, ShiftAssignment, Employee, JobType, cleanup_old_schedules
 from models import (
     ScheduleOut, ShiftAssignmentOut, ShiftAssignmentUpdate,
-    ScheduleGenerate, StatusUpdate,
+    ScheduleGenerate, StatusUpdate, ScheduleUpdate,
 )
 from services.optimizer import generate_schedule
 from datetime import datetime
@@ -39,6 +39,7 @@ def list_schedules(month: str | None = None, db: Session = Depends(get_db)):
             status=s.status,
             generated_at=s.generated_at.isoformat() if s.generated_at else None,
             confirmed_at=s.confirmed_at.isoformat() if s.confirmed_at else None,
+            comment=s.comment or "",
         )
         for s in schedules
     ]
@@ -124,3 +125,20 @@ def update_status(schedule_id: int, body: StatusUpdate, db: Session = Depends(ge
         schedule.confirmed_at = datetime.utcnow()
     db.commit()
     return {"status": "ok"}
+
+
+@router.put("/{schedule_id}", response_model=ScheduleOut)
+def update_schedule(schedule_id: int, body: ScheduleUpdate, db: Session = Depends(get_db)):
+    schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    schedule.comment = body.comment or ""
+    db.commit()
+    return ScheduleOut(
+        id=schedule.id,
+        target_month=schedule.target_month,
+        status=schedule.status,
+        generated_at=schedule.generated_at.isoformat() if schedule.generated_at else None,
+        confirmed_at=schedule.confirmed_at.isoformat() if schedule.confirmed_at else None,
+        comment=schedule.comment or "",
+    )

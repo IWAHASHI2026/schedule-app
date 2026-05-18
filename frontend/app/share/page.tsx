@@ -222,6 +222,14 @@ function SharePageContent() {
               </tbody>
             </table>
           </div>
+          {schedule.comment && (
+            <div className="mt-4 sm:mt-6 border border-slate-200 bg-slate-50 rounded-md p-3 sm:p-4">
+              <div className="text-xs sm:text-sm font-bold text-slate-700 mb-1">【管理者コメント】</div>
+              <div className="text-xs sm:text-sm text-slate-800 whitespace-pre-wrap break-words">
+                {schedule.comment}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -130,6 +130,7 @@ class Schedule(Base):
     status = Column(Text, nullable=False, default="draft")
     generated_at = Column(DateTime)
     confirmed_at = Column(DateTime)
+    comment = Column(Text, nullable=True, default="")
 
     assignments = relationship("ShiftAssignment", back_populates="schedule", cascade="all, delete-orphan")
     nlp_logs = relationship("NlpModificationLog", back_populates="schedule", cascade="all, delete-orphan")
@@ -377,6 +378,19 @@ def _migrate_rename_uvc_and_add_tegami():
         pass
 
 
+def _migrate_add_schedule_comment():
+    """Add comment column to schedules if it doesn't exist."""
+    try:
+        columns = _get_existing_columns("schedules")
+        if columns and "comment" not in columns:
+            with engine.begin() as conn:
+                conn.execute(sa_text(
+                    "ALTER TABLE schedules ADD COLUMN comment TEXT DEFAULT ''"
+                ))
+    except Exception:
+        pass
+
+
 def init_db():
     """Create tables and seed initial data."""
     Base.metadata.create_all(bind=engine)
@@ -389,6 +403,7 @@ def init_db():
     _migrate_rename_uvc_and_add_tegami()
     _migrate_add_staff_token()
     _migrate_add_job_type_sort_order()
+    _migrate_add_schedule_comment()
     db = SessionLocal()
     try:
         if db.query(JobType).count() == 0:

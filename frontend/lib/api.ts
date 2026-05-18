@@ -141,6 +141,7 @@ export interface Schedule {
   status: string;
   generated_at: string | null;
   confirmed_at: string | null;
+  comment: string;
 }
 
 export interface ShiftAssignment {
@@ -177,6 +178,11 @@ export const updateScheduleStatus = (scheduleId: number, status: string) =>
   request<{ status: string }>(`/schedules/${scheduleId}/status`, {
     method: "PUT",
     body: JSON.stringify({ status }),
+  });
+export const updateScheduleComment = (scheduleId: number, comment: string) =>
+  request<Schedule>(`/schedules/${scheduleId}`, {
+    method: "PUT",
+    body: JSON.stringify({ comment }),
   });
 
 // ---- NLP Modify ----

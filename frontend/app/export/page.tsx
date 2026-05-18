@@ -1,18 +1,54 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { FileSpreadsheet, FileText, Download, Link2, Check, Copy } from "lucide-react";
-import { getExportUrl } from "@/lib/api";
+import { Textarea } from "@/components/ui/textarea";
+import { FileSpreadsheet, FileText, Download, Link2, Check, Copy, MessageSquare, Save } from "lucide-react";
+import { getExportUrl, getSchedules, updateScheduleComment, type Schedule } from "@/lib/api";
 
 export default function ExportPage() {
   const today = new Date();
   const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 2).padStart(2, "0")}`;
   const [month, setMonth] = useState(defaultMonth);
   const [copied, setCopied] = useState(false);
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
+  const [comment, setComment] = useState("");
+  const [savingComment, setSavingComment] = useState(false);
+  const [commentSaved, setCommentSaved] = useState(false);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setScheduleLoading(true);
+    setCommentSaved(false);
+    (async () => {
+      try {
+        const schedules = await getSchedules(month);
+        if (cancelled) return;
+        // 公開済み > 確定 > 最新 の優先で選ぶ (share/page.tsx と同じロジック)
+        const target =
+          schedules.find((s) => s.status === "published") ||
+          schedules.find((s) => s.status === "confirmed") ||
+          schedules[0] ||
+          null;
+        setSchedule(target);
+        setComment(target?.comment || "");
+      } catch {
+        if (!cancelled) {
+          setSchedule(null);
+          setComment("");
+        }
+      } finally {
+        if (!cancelled) setScheduleLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [month]);
 
   const shareUrl = typeof window !== "undefined"
     ? `${window.location.origin}/share?month=${month}`
@@ -28,6 +64,22 @@ export default function ExportPage() {
     window.open(getExportUrl(type, month), "_blank");
   };
 
+  const handleSaveComment = async () => {
+    if (!schedule) return;
+    setSavingComment(true);
+    setCommentSaved(false);
+    try {
+      const updated = await updateScheduleComment(schedule.id, comment);
+      setSchedule(updated);
+      setCommentSaved(true);
+      setTimeout(() => setCommentSaved(false), 2000);
+    } catch (e) {
+      alert(`コメントの保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSavingComment(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">シフト出力</h1>
@@ -41,6 +93,49 @@ export default function ExportPage() {
           className="mt-1 w-44"
         />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-blue-600" />
+            管理者コメント
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-3">
+            各出力 (配布用URL / CSV / Excel / PDF) の最下部に表示されます。空にすると非表示。
+            <br />
+            保存後に出力すると反映されます。
+          </p>
+          <Textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder={
+              scheduleLoading
+                ? "読み込み中..."
+                : schedule
+                  ? "例: 6/1午後は休憩室の使用にご注意ください。"
+                  : "対象月のスケジュールがありません。先にスケジュールを生成してください。"
+            }
+            disabled={!schedule || scheduleLoading}
+            className="min-h-[100px]"
+          />
+          <div className="mt-3 flex items-center gap-3">
+            <Button
+              onClick={handleSaveComment}
+              disabled={!schedule || savingComment || scheduleLoading}
+              variant="outline"
+            >
+              {commentSaved ? (
+                <Check className="mr-2 h-4 w-4 text-green-600" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              {commentSaved ? "保存しました" : savingComment ? "保存中..." : "コメントを保存"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card className="md:col-span-2">

@@ -111,6 +111,11 @@ class ScheduleOut(BaseModel):
     status: str
     generated_at: Optional[str] = None
     confirmed_at: Optional[str] = None
+    comment: str = ""
+
+
+class ScheduleUpdate(BaseModel):
+    comment: str = ""
 
 class ShiftAssignmentOut(BaseModel):
     id: int

@@ -83,7 +83,8 @@ def _get_schedule_data(db: Session, month: str):
             else:
                 matrix[a.employee_id][a.date] = "調休"
 
-    return employees, dates, matrix, job_types, summary, daily_totals
+    comment = (schedule.comment or "").strip()
+    return employees, dates, matrix, job_types, summary, daily_totals, comment
 
 
 def _split_dates(dates: list[date]) -> tuple[list[date], list[date]]:
@@ -107,7 +108,7 @@ def _fmt_val(val: float) -> str:
 # ---------------------------------------------------------------------------
 
 def generate_csv(db: Session, month: str) -> str:
-    employees, dates, matrix, job_types, summary, daily_totals = _get_schedule_data(db, month)
+    employees, dates, matrix, job_types, summary, daily_totals, comment = _get_schedule_data(db, month)
     first_half, second_half = _split_dates(dates)
 
     output = io.StringIO()
@@ -143,6 +144,10 @@ def generate_csv(db: Session, month: str) -> str:
         # Blank separator between halves
         writer.writerow([])
 
+    if comment:
+        writer.writerow(["管理者コメント"])
+        writer.writerow([comment])
+
     return output.getvalue()
 
 
@@ -151,7 +156,7 @@ def generate_csv(db: Session, month: str) -> str:
 # ---------------------------------------------------------------------------
 
 def generate_excel(db: Session, month: str) -> bytes:
-    employees, dates, matrix, job_types, summary, daily_totals = _get_schedule_data(db, month)
+    employees, dates, matrix, job_types, summary, daily_totals, comment = _get_schedule_data(db, month)
     first_half, second_half = _split_dates(dates)
 
     wb = Workbook()
@@ -246,6 +251,30 @@ def generate_excel(db: Session, month: str) -> bytes:
         # Gap between halves
         current_row += 2
 
+    # 管理者コメント (シートの最下部に追加)
+    if comment:
+        max_cols = max(len(first_half), len(second_half)) + 1
+        label_cell = ws.cell(row=current_row, column=1, value="管理者コメント")
+        label_cell.font = Font(bold=True, size=10)
+        label_cell.fill = PatternFill(start_color="E0E0E0", fill_type="solid")
+        label_cell.alignment = Alignment(horizontal='left', vertical='center')
+        label_cell.border = thin_border
+        ws.merge_cells(
+            start_row=current_row, start_column=1,
+            end_row=current_row, end_column=max_cols,
+        )
+        current_row += 1
+        body_cell = ws.cell(row=current_row, column=1, value=comment)
+        body_cell.alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+        body_cell.font = Font(size=10)
+        body_cell.border = thin_border
+        ws.merge_cells(
+            start_row=current_row, start_column=1,
+            end_row=current_row, end_column=max_cols,
+        )
+        line_count = max(comment.count("\n") + 1, 2)
+        ws.row_dimensions[current_row].height = 18 * line_count
+
     output = io.BytesIO()
     wb.save(output)
     return output.getvalue()
@@ -256,8 +285,11 @@ def generate_excel(db: Session, month: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 def generate_pdf(db: Session, month: str) -> bytes:
-    employees, dates, matrix, job_types, summary, daily_totals = _get_schedule_data(db, month)
+    employees, dates, matrix, job_types, summary, daily_totals, comment = _get_schedule_data(db, month)
     first_half, second_half = _split_dates(dates)
+
+    # コメントがある場合は各ページ下部に表示するため bottomMargin を拡張
+    bottom_margin = 26 * mm if comment else 8 * mm
 
     output = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -266,7 +298,7 @@ def generate_pdf(db: Session, month: str) -> bytes:
         leftMargin=8 * mm,
         rightMargin=8 * mm,
         topMargin=8 * mm,
-        bottomMargin=8 * mm,
+        bottomMargin=bottom_margin,
     )
 
     # Try to register a Japanese font
@@ -406,7 +438,53 @@ def generate_pdf(db: Session, month: str) -> bytes:
     if elements and isinstance(elements[-1], PageBreak):
         elements.pop()
 
-    doc.build(elements)
+    # 各ページ下部に管理者コメントを描画 (空のときは何もしない)
+    def _draw_comment_footer(canvas, _doc):
+        if not comment:
+            return
+        canvas.saveState()
+        page_width, _page_height = landscape(A4)
+        left = 8 * mm
+        bottom = 4 * mm
+        box_width = page_width - 16 * mm
+        box_height = 18 * mm
+
+        # 背景ボックス
+        canvas.setStrokeColor(colors.Color(0.55, 0.55, 0.55))
+        canvas.setFillColor(colors.Color(0.97, 0.97, 0.97))
+        canvas.setLineWidth(0.5)
+        canvas.rect(left, bottom, box_width, box_height, fill=1, stroke=1)
+
+        # ラベル + 本文を Paragraph で描画 (折り返し対応)
+        label_font = bold_font_name or font_name or "Helvetica-Bold"
+        body_font = font_name or "Helvetica"
+        body_html = (
+            comment.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br/>")
+        )
+        full_html = (
+            f'<font name="{label_font}" size="9"><b>【管理者コメント】</b></font>'
+            f'<br/><font name="{body_font}" size="8">{body_html}</font>'
+        )
+        style = ParagraphStyle(
+            "FooterCommentStyle",
+            fontName=body_font,
+            fontSize=8,
+            leading=10,
+            textColor=colors.black,
+        )
+        para = Paragraph(full_html, style)
+        inner_width = box_width - 4 * mm
+        para.wrapOn(canvas, inner_width, box_height - 2 * mm)
+        # Paragraph は drawOn(x, y) の y を bottom-left 基準で描画する
+        actual_h = min(para.height, box_height - 2 * mm)
+        y = bottom + box_height - actual_h - 2 * mm
+        para.drawOn(canvas, left + 2 * mm, y)
+        canvas.restoreState()
+
+    doc.build(elements, onFirstPage=_draw_comment_footer, onLaterPages=_draw_comment_footer)
     return output.getvalue()
 
 
