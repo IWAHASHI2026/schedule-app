@@ -17,6 +17,7 @@ Soft-hard constraints（可能な限り守るが、不可能なら違反とし�
   HC-06 下限: 職人・サブ職人は各営業日に1名配置（penalty 1,000,000）
   HC-04b: 日別必要人数未設定の職種への配置禁止（penalty 100,000）
   HC-07:  週出勤日数上限（penalty 500,000 per 超過日）
+  HC-08:  連休明け1日目に調整休を入れない（penalty 1,000,000）
   → 違反時は violations リストに日本語メッセージとして追加
 
 Soft constraints (objective function) — 4段階の優先順位:
@@ -35,9 +36,8 @@ Soft constraints (objective function) — 4段階の優先順位:
     SC-05: Prefer higher-priority job types (weight 2)
     SC-06: Prefer full-time employees over dependent (weight 3)
     SC-07: Avoid same job type on consecutive working days (weight 5)
-    SC-10: 連休明けの出勤誘導 (weight 30)
-           - 2日以上の連休後: 翌日+翌々日にブースト
-           - 1日のみの休後: 翌日のみブースト
+    SC-10: 2日以上連休の翌々日への出勤誘導 (weight 100, 極力出勤)
+           - 連休明け1日目は HC-08 (hard-soft) で対応
     Shortage penalty: Priority-weighted (higher priority = higher penalty)
 """
 
@@ -191,6 +191,7 @@ def generate_schedule(
     hc06_violations: list = []   # [(slack_var, d, j)]
     hc04b_violations: list = []  # [(slack_var, e_id, d, j)]
     hc07_violations: list = []   # [(over_var, e_id, week_key, wlimit, week_dates)]
+    hc08_violations: list = []   # [(slack_var, e_id, d)]  - 連休明け1日目の調整休禁止
 
     # HC-01b (SOFT): Half-day off -> should work the remaining half
     # 強制生成のためソフト化。違反時は大ペナルティ。
@@ -257,6 +258,23 @@ def generate_schedule(
                         # x==1 の場合は v==1 にする
                         model.add(x[e_id, d, j] <= v)
                         hc04b_violations.append((v, e_id, d, j))
+
+    # HC-08 (SOFT): 連休明け1日目に調整休を入れない（出荷集中日の絶対出勤）
+    # 強制生成のためソフト化。月間上限が逼迫等で物理的に不可能な場合のみ違反として記録。
+    # HC-01(希休) と HC-01b(半日休) は対象外（個別ルールが優先）。
+    for d in working_dates:
+        prev_d = d - timedelta(days=1)
+        if not is_non_working_day(prev_d):
+            continue  # 連休明け1日目ではない
+        for e_id in emp_ids:
+            if d in emp_full_off[e_id]:
+                continue  # HC-01 (希休) を優先
+            if d in emp_half_off[e_id]:
+                continue  # HC-01b が半日勤務を担保
+            v = model.new_bool_var(f"viol_hc08_{e_id}_{d.isoformat()}")
+            # work==1 OR v==1
+            model.add(work[e_id, d] + v >= 1)
+            hc08_violations.append((v, e_id, d))
 
     # HC-07 (SOFT): Weekly work day limit per employee
     # 強制生成のためソフト化。超過分をペナルティ。
@@ -466,25 +484,18 @@ def generate_schedule(
                 model.add(consec >= x[e_id, d1, j] + x[e_id, d2, j] - 1)
                 objective_terms.append(consec * 5)
 
-    # SC-10: 連休明けの出勤誘導 (weight 30)
-    # - 連休が2日以上(土日/3連休等) → 翌日 (Rule 1) と翌々日 (Rule 2) の両方をブースト
-    # - 連休が1日のみ(平日単発祝日) → 翌日 (Rule 1) のみブースト
-    # 出荷は営業日のみで、連休が長いほど明けに出荷が集中するため人手を厚くする。
-    # weight=30 で SC-04(10)/SC-07(5)/SC-08(5) を明確に上回り、SC-01(50)は下回る。
-    SC10_WEIGHT = 30
+    # SC-10: 2日以上連休の翌々日への出勤誘導 (weight 100, 極力出勤)
+    # 連休明け1日目 (Rule 1) は HC-08 (hard-soft, 1M penalty) で対応するため、
+    # ここは Rule 2 (例: 通常週の火曜、3連休後の水曜) のみを担当する強めのソフト誘導。
+    # weight=100 で SC-01(50)/SC-04(10) を明確に上回り、shortage penalty(100)と同等。
+    SC10_WEIGHT = 100
     for d in working_dates:
         prev_d = d - timedelta(days=1)
         if is_non_working_day(prev_d):
-            # Rule 1: 翌日(連休直後の最初の営業日) - 連休の長さに関わらずブースト
-            is_boost_day = True
-        else:
-            # Rule 2: 翌々日(2日以上連休の2番目の営業日)
-            # prev_d が営業日で、その前 (d-2, d-3) が両方非営業日 → 直前の連休は >= 2日
-            is_boost_day = (
-                is_non_working_day(d - timedelta(days=2))
-                and is_non_working_day(d - timedelta(days=3))
-            )
-        if not is_boost_day:
+            continue  # Rule 1 days are handled by HC-08
+        # Rule 2: prev_d が営業日 かつ d-2, d-3 が両方非営業日 → 直前の連休 >= 2日
+        if not (is_non_working_day(d - timedelta(days=2))
+                and is_non_working_day(d - timedelta(days=3))):
             continue
         for e_id in emp_ids:
             # 出勤しない (work=0) 場合にペナルティ → 出勤側へ誘導
@@ -505,6 +516,7 @@ def generate_schedule(
     HC06_PENALTY = 1_000_000
     HC04B_PENALTY = 100_000
     HC07_PENALTY = 500_000
+    HC08_PENALTY = 1_000_000  # 連休明け1日目の調整休禁止 - 「絶対」を表現
     for v, _, _ in hc01b_violations:
         objective_terms.append(v * HC01B_PENALTY)
     for v, _, _ in hc06_violations:
@@ -513,6 +525,8 @@ def generate_schedule(
         objective_terms.append(v * HC04B_PENALTY)
     for over, _, _, _, _ in hc07_violations:
         objective_terms.append(over * HC07_PENALTY)
+    for v, _, _ in hc08_violations:
+        objective_terms.append(v * HC08_PENALTY)
 
     if objective_terms:
         model.minimize(sum(objective_terms))
@@ -641,6 +655,13 @@ def generate_schedule(
             violations.append(
                 f"{d.month}月{d.day}日（{dow}）: "
                 f"{emp_names[e_id]}の半日休の残り半分を出勤にできませんでした（HC-01b）"
+            )
+    for v, e_id, d in hc08_violations:
+        if solver.value(v) == 1:
+            dow = dow_names[d.weekday()]
+            violations.append(
+                f"{d.month}月{d.day}日（{dow}）: "
+                f"{emp_names[e_id]}の調整休を回避できませんでした（HC-08: 連休明け）"
             )
     for v, d, j in hc06_violations:
         if solver.value(v) == 1:
