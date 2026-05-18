@@ -35,7 +35,7 @@ Soft constraints (objective function) — 4段階の優先順位:
     SC-05: Prefer higher-priority job types (weight 2)
     SC-06: Prefer full-time employees over dependent (weight 3)
     SC-07: Avoid same job type on consecutive working days (weight 5)
-    SC-10: 連休明けの出勤誘導 (weight 10)
+    SC-10: 連休明けの出勤誘導 (weight 30)
            - 2日以上の連休後: 翌日+翌々日にブースト
            - 1日のみの休後: 翌日のみブースト
     Shortage penalty: Priority-weighted (higher priority = higher penalty)
@@ -466,11 +466,12 @@ def generate_schedule(
                 model.add(consec >= x[e_id, d1, j] + x[e_id, d2, j] - 1)
                 objective_terms.append(consec * 5)
 
-    # SC-10: 連休明けの出勤誘導 (weight 10)
+    # SC-10: 連休明けの出勤誘導 (weight 30)
     # - 連休が2日以上(土日/3連休等) → 翌日 (Rule 1) と翌々日 (Rule 2) の両方をブースト
     # - 連休が1日のみ(平日単発祝日) → 翌日 (Rule 1) のみブースト
     # 出荷は営業日のみで、連休が長いほど明けに出荷が集中するため人手を厚くする。
-    SC10_WEIGHT = 10
+    # weight=30 で SC-04(10)/SC-07(5)/SC-08(5) を明確に上回り、SC-01(50)は下回る。
+    SC10_WEIGHT = 30
     for d in working_dates:
         prev_d = d - timedelta(days=1)
         if is_non_working_day(prev_d):
