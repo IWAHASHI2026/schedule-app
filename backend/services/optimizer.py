@@ -35,6 +35,9 @@ Soft constraints (objective function) — 4段階の優先順位:
     SC-05: Prefer higher-priority job types (weight 2)
     SC-06: Prefer full-time employees over dependent (weight 3)
     SC-07: Avoid same job type on consecutive working days (weight 5)
+    SC-10: 連休明けの出勤誘導 (weight 10)
+           - 2日以上の連休後: 翌日+翌々日にブースト
+           - 1日のみの休後: 翌日のみブースト
     Shortage penalty: Priority-weighted (higher priority = higher penalty)
 """
 
@@ -462,6 +465,29 @@ def generate_schedule(
                 consec = model.new_bool_var(f"consec_{e_id}_{d1}_{j}")
                 model.add(consec >= x[e_id, d1, j] + x[e_id, d2, j] - 1)
                 objective_terms.append(consec * 5)
+
+    # SC-10: 連休明けの出勤誘導 (weight 10)
+    # - 連休が2日以上(土日/3連休等) → 翌日 (Rule 1) と翌々日 (Rule 2) の両方をブースト
+    # - 連休が1日のみ(平日単発祝日) → 翌日 (Rule 1) のみブースト
+    # 出荷は営業日のみで、連休が長いほど明けに出荷が集中するため人手を厚くする。
+    SC10_WEIGHT = 10
+    for d in working_dates:
+        prev_d = d - timedelta(days=1)
+        if is_non_working_day(prev_d):
+            # Rule 1: 翌日(連休直後の最初の営業日) - 連休の長さに関わらずブースト
+            is_boost_day = True
+        else:
+            # Rule 2: 翌々日(2日以上連休の2番目の営業日)
+            # prev_d が営業日で、その前 (d-2, d-3) が両方非営業日 → 直前の連休は >= 2日
+            is_boost_day = (
+                is_non_working_day(d - timedelta(days=2))
+                and is_non_working_day(d - timedelta(days=3))
+            )
+        if not is_boost_day:
+            continue
+        for e_id in emp_ids:
+            # 出勤しない (work=0) 場合にペナルティ → 出勤側へ誘導
+            objective_terms.append((1 - work[e_id, d]) * SC10_WEIGHT)
 
     # Penalty for requirement shortages — priority-weighted
     # 優先順位の高い職種ほど不足ペナルティを大きくし、
