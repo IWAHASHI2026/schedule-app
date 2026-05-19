@@ -26,18 +26,21 @@ Soft constraints (objective function) — 4段階の優先順位:
          - "max" = maximize work days (penalize non-work, soft)
          - Numeric value = hard upper limit on total work days
          - Full-time with no request = default to "max"
-  [Tier 2] フル勤務の仕事バランス:
-    SC-04: Job type balance per employee (full-time weight 10, dependent weight 2)
+  [Tier 2] 仕事バランス:
+    SC-04: Job type balance per employee (weight 10, 全社員で統一)
     SC-08: Cross-employee fairness per job type across all qualified employees (full-time weight 5, dependent weight 1)
   [Tier 3] 扶養内の希望日数:
     SC-09: Dependent staff minimum work days target (weight 8, default 10 days)
-  [Tier 4] 扶養内の仕事バランス: (SC-04, SC-08 の dependent weights)
+  [Tier 4] 扶養内の cross-employee fairness: (SC-08 の dependent weights のみ)
   Other:
     SC-05: Prefer higher-priority job types (weight 2)
     SC-06: Prefer full-time employees over dependent (weight 3)
     SC-07: Avoid same job type on consecutive working days (weight 5)
     SC-10: 2日以上連休の翌々日への出勤誘導 (weight 100, 極力出勤)
            - 連休明け1日目は HC-08 (hard-soft) で対応
+    SC-11: 資格職種のゼロ日数防止 (weight 500)
+           - 資格を持ち、その月の daily_requirements に1日以上設定がある職種を
+             0日にしないよう強くペナルティ
     Shortage penalty: Priority-weighted (higher priority = higher penalty)
 """
 
@@ -413,7 +416,7 @@ def generate_schedule(
         objective_terms.append(shortfall * 8)
 
     # SC-04: Job type balance per employee — pairwise
-    # Tier 2: full-time weight 10, Tier 4: dependent weight 2
+    # 全社員で weight 10 (雇用形態問わず統一)
     emp_job_counts: dict[int, dict[int, cp_model.IntVar]] = {}
     for e_id in emp_ids:
         allowed = emp_job_types.get(e_id, [])
@@ -427,7 +430,7 @@ def generate_schedule(
         emp_job_counts[e_id] = job_counts
         if len(allowed) <= 1:
             continue
-        balance_weight = 10 if emp_type[e_id] == "full_time" else 2  # Tier 2 vs Tier 4
+        balance_weight = 10  # 全社員で同一 (旧: dep は weight 2)
         for i in range(len(allowed)):
             for k in range(i + 1, len(allowed)):
                 j1, j2 = allowed[i], allowed[k]
@@ -456,6 +459,26 @@ def generate_schedule(
             model.add(diff >= emp_job_counts[e1][j] - emp_job_counts[e2][j])
             model.add(diff >= emp_job_counts[e2][j] - emp_job_counts[e1][j])
             objective_terms.append(diff * fairness_weight)
+
+    # SC-11: 資格職種のゼロ日数防止 (weight 500)
+    # その月の daily_requirements に1日でも設定がある職種について、
+    # 資格を持つスタッフがその職種で 0 日にならないよう強くペナルティを付与。
+    # SC-04 (バランス) は「少なすぎ」を罰するが、絶対値0は別途防ぐ必要があるため独立構成。
+    SC11_WEIGHT = 500
+    jobs_with_demand: set[int] = set()
+    for d in working_dates:
+        for j in daily_reqs.get(d, {}):
+            jobs_with_demand.add(j)
+    for e_id in emp_ids:
+        for j in emp_job_types.get(e_id, []):
+            if j not in jobs_with_demand:
+                continue  # その月に需要のない職種はスキップ (HC-04b 領域)
+            if j not in emp_job_counts.get(e_id, {}):
+                continue
+            # zero_flag = 1 iff count == 0 (bigM 線形化)
+            zero_flag = model.new_bool_var(f"sc11_zero_{e_id}_{j}")
+            model.add(emp_job_counts[e_id][j] + total_working_dates * zero_flag >= 1)
+            objective_terms.append(zero_flag * SC11_WEIGHT)
 
     # SC-05: Priority cost - prefer lower sort_order (1=職人, 2=サブ, 3=lkデータ, 4=uv/cpデータ, 5=手紙, 6=その他)
     priority_weight = 2
