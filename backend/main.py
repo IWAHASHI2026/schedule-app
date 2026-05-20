@@ -1,7 +1,8 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import init_db, cleanup_old_schedules
+from sqlalchemy import text as sa_text
+from database import init_db, cleanup_old_schedules, engine, _is_sqlite
 from routers import employees, job_types, requests, requirements, schedules, nlp_modify, reports, export, holidays, staff_portal, backup_restore
 
 app = FastAPI(title="Shift Scheduler API", version="1.0.0")
@@ -53,4 +54,14 @@ def on_startup():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    db_connected = True
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("SELECT 1"))
+    except Exception:
+        db_connected = False
+    return {
+        "status": "ok" if db_connected else "db_error",
+        "db_connected": db_connected,
+        "db_type": "sqlite" if _is_sqlite else "postgresql",
+    }

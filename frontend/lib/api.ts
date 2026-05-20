@@ -270,3 +270,11 @@ export const revokeToken = (employeeId: number) =>
 // ---- Export ----
 export const getExportUrl = (type: "csv" | "excel" | "pdf", month: string) =>
   `${API_BASE}/export/${type}?month=${month}`;
+
+// ---- Health ----
+export interface HealthStatus {
+  status: string;
+  db_connected: boolean;
+  db_type: string;
+}
+export const getHealth = () => request<HealthStatus>("/health");
