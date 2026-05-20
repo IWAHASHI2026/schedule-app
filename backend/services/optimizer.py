@@ -44,6 +44,7 @@ Soft constraints (objective function) — 4段階の優先順位:
     Shortage penalty: Priority-weighted (higher priority = higher penalty)
 """
 
+import logging
 from ortools.sat.python import cp_model
 from sqlalchemy.orm import Session
 from database import (
@@ -52,6 +53,8 @@ from database import (
 )
 from routers.holidays import is_non_working_day
 from datetime import date, timedelta
+
+logger = logging.getLogger(__name__)
 import calendar
 
 
@@ -555,9 +558,20 @@ def generate_schedule(
         model.minimize(sum(objective_terms))
 
     # ---- Solve ----
+    # 並列探索 + 十分な時間で、バランス制約(SC-04/08/11)まで最適化されるようにする。
+    # モデル肥大化(HC-08/SC-10/SC-11追加)に伴い、旧設定(30秒・単一ワーカー)では
+    # 重みの小さいバランス目的が最適化されきらず偏りが残っていた。
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 30.0
+    solver.parameters.max_time_in_seconds = 60.0
+    solver.parameters.num_search_workers = 8  # 並列ポートフォリオ探索
     status = solver.solve(model)
+    logger.info(
+        "schedule solve: status=%s objective=%s bound=%s wall=%.1fs",
+        solver.status_name(status),
+        solver.objective_value if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else None,
+        solver.best_objective_bound if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else None,
+        solver.wall_time,
+    )
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         reasons = _diagnose_infeasibility(
