@@ -29,6 +29,7 @@ Soft constraints (objective function) — 4段階の優先順位:
   [Tier 2] 仕事バランス:
     SC-04: Job type balance per employee (weight 10, 全社員で統一)
     SC-08: Cross-employee fairness per job type across all qualified employees (full-time weight 5, dependent weight 1)
+           - サブ職人のみ weight 40 (資格者3名で偏りやすいため強く均等化)
   [Tier 3] 扶養内の希望日数:
     SC-09: Dependent staff minimum work days target (weight 8, default 10 days)
   [Tier 4] 扶養内の cross-employee fairness: (SC-08 の dependent weights のみ)
@@ -41,6 +42,8 @@ Soft constraints (objective function) — 4段階の優先順位:
     SC-11: 資格職種のゼロ日数防止 (weight 500)
            - 資格を持ち、その月の daily_requirements に1日以上設定がある職種を
              0日にしないよう強くペナルティ
+    SC-12: 手紙の週次分散 (週2日目=weight 50, 週3日以上=weight 100,000)
+           - 各スタッフ週1日・多くて週2日に。特定人への集中を防ぎ分散
     Shortage penalty: Priority-weighted (higher priority = higher penalty)
 """
 
@@ -448,6 +451,10 @@ def generate_schedule(
     # （旧実装は完全一致の資格グループのみ対象だったため、1つでも資格が異なる
     #   スタッフが孤立し、特定職種に偏る問題があった）
     from itertools import combinations
+    # サブ職人は資格者が少なく偏りやすいので公平性を強める (大野/和平/植原の均等化)
+    _subjob_jt = db.query(JobType).filter(JobType.name == "サブ職人").first()
+    subjob_jt_id = _subjob_jt.id if _subjob_jt else None
+    SC08_SUBJOB_WEIGHT = 40
     for j in all_job_type_ids:
         qualified = [e_id for e_id in emp_ids
                      if j in emp_job_types.get(e_id, [])
@@ -457,7 +464,10 @@ def generate_schedule(
         for e1, e2 in combinations(qualified, 2):
             # 両者がフル勤務ならTier 2、それ以外はTier 4
             both_fulltime = emp_type[e1] == "full_time" and emp_type[e2] == "full_time"
-            fairness_weight = 5 if both_fulltime else 1
+            if j == subjob_jt_id:
+                fairness_weight = SC08_SUBJOB_WEIGHT  # サブ職人は強く均等化
+            else:
+                fairness_weight = 5 if both_fulltime else 1
             diff = model.new_int_var(0, total_working_dates, f"sc08_{e1}_{e2}_{j}")
             model.add(diff >= emp_job_counts[e1][j] - emp_job_counts[e2][j])
             model.add(diff >= emp_job_counts[e2][j] - emp_job_counts[e1][j])
@@ -482,6 +492,26 @@ def generate_schedule(
             zero_flag = model.new_bool_var(f"sc11_zero_{e_id}_{j}")
             model.add(emp_job_counts[e_id][j] + total_working_dates * zero_flag >= 1)
             objective_terms.append(zero_flag * SC11_WEIGHT)
+
+    # SC-12: 手紙は各スタッフ週1日・多くて週2日 (上限キャップ+分散)
+    # 週3日以上を大ペナルティで実質禁止、週2日目を軽ペナルティで抑制し1日/週へ誘導。
+    # これにより特定スタッフ(近藤など)への手紙集中を防ぎ、資格者全体へ分散させる。
+    _tegami_jt = db.query(JobType).filter(JobType.name == "手紙").first()
+    tegami_jt_id = _tegami_jt.id if _tegami_jt else None
+    TEGAMI_WEEK_SOFT = 50        # 週2日目の軽い抑制 (週1日を推奨)
+    TEGAMI_WEEK_CAP = 100_000    # 週3日以上を強く禁止 (実質ハード)
+    if tegami_jt_id is not None:
+        for e_id in emp_ids:
+            if tegami_jt_id not in emp_job_types.get(e_id, []):
+                continue
+            for week_key, week_dates in weeks.items():
+                tegami_count = sum(x[e_id, d, tegami_jt_id] for d in week_dates)
+                over1 = model.new_int_var(0, len(week_dates), f"tegami_over1_{e_id}_{week_key}")
+                model.add(over1 >= tegami_count - 1)
+                objective_terms.append(over1 * TEGAMI_WEEK_SOFT)
+                over2 = model.new_int_var(0, len(week_dates), f"tegami_over2_{e_id}_{week_key}")
+                model.add(over2 >= tegami_count - 2)
+                objective_terms.append(over2 * TEGAMI_WEEK_CAP)
 
     # SC-05: Priority cost - prefer lower sort_order (1=職人, 2=サブ, 3=lkデータ, 4=uv/cpデータ, 5=手紙, 6=その他)
     priority_weight = 2
