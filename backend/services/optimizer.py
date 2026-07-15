@@ -54,7 +54,7 @@ from database import (
     Employee, EmployeeJobType, ShiftRequest, RequestDetail,
     DailyRequirement, Schedule, ShiftAssignment,
 )
-from routers.holidays import is_non_working_day
+from routers.holidays import is_non_working_day, get_company_holiday_dates
 from datetime import date, timedelta
 
 logger = logging.getLogger(__name__)
@@ -74,7 +74,8 @@ def generate_schedule(
     year, mon = map(int, month.split("-"))
     days_in_month = calendar.monthrange(year, mon)[1]
     all_dates = [date(year, mon, d) for d in range(1, days_in_month + 1)]
-    working_dates = [d for d in all_dates if not is_non_working_day(d)]
+    company_holidays = get_company_holiday_dates(db)
+    working_dates = [d for d in all_dates if not is_non_working_day(d, company_holidays)]
 
     # Load data
     employees = db.query(Employee).order_by(Employee.sort_order).all()
@@ -273,7 +274,7 @@ def generate_schedule(
     # HC-01(希休) と HC-01b(半日休) は対象外（個別ルールが優先）。
     for d in working_dates:
         prev_d = d - timedelta(days=1)
-        if not is_non_working_day(prev_d):
+        if not is_non_working_day(prev_d, company_holidays):
             continue  # 連休明け1日目ではない
         for e_id in emp_ids:
             if d in emp_full_off[e_id]:
@@ -547,11 +548,11 @@ def generate_schedule(
     SC10_WEIGHT = 100
     for d in working_dates:
         prev_d = d - timedelta(days=1)
-        if is_non_working_day(prev_d):
+        if is_non_working_day(prev_d, company_holidays):
             continue  # Rule 1 days are handled by HC-08
         # Rule 2: prev_d が営業日 かつ d-2, d-3 が両方非営業日 → 直前の連休 >= 2日
-        if not (is_non_working_day(d - timedelta(days=2))
-                and is_non_working_day(d - timedelta(days=3))):
+        if not (is_non_working_day(d - timedelta(days=2), company_holidays)
+                and is_non_working_day(d - timedelta(days=3), company_holidays)):
             continue
         for e_id in emp_ids:
             # 出勤しない (work=0) 場合にペナルティ → 出勤側へ誘導
@@ -625,7 +626,7 @@ def generate_schedule(
     assignments = []
     for e_id in emp_ids:
         for d in all_dates:
-            if is_non_working_day(d):
+            if is_non_working_day(d, company_holidays):
                 # Off day (weekend/holiday)
                 a = ShiftAssignment(
                     schedule_id=schedule.id,

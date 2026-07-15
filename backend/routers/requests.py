@@ -110,6 +110,9 @@ def upsert_shift_request(
     db.add(req)
     db.flush()
 
+    # 非営業日（土日・祝日・会社休業日）の希望休もそのまま保存する。
+    # optimizer / reports は読み取り時に非営業日を無視するため実害はなく、
+    # 保存時に落とすと「休業日登録→クリア→復元→休業日取消」で希望休が失われる。
     for d in days_off:
         db.add(RequestDetail(shift_request_id=req.id, date=d.date, period=d.period))
 

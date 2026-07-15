@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Users, CalendarDays, Settings2, Wand2, CalendarCheck,
-  BarChart3, Download, AlertTriangle,
+  BarChart3, Download, AlertTriangle, CalendarOff,
 } from "lucide-react";
 import {
   getEmployees, getRequestStatus, getRequirements, getSchedules,
@@ -64,6 +64,7 @@ export default function DashboardPage() {
 
   const navCards = [
     { href: "/staff", icon: Users, label: "スタッフ管理", desc: `${empCount}名登録` },
+    { href: "/holidays", icon: CalendarOff, label: "休日設定", desc: "臨時休業日の登録" },
     { href: "/requests", icon: CalendarDays, label: "希望入力", desc: `${reqStatus.done}/${reqStatus.total}名入力済` },
     { href: "/requirements", icon: Settings2, label: "必要人数設定", desc: `${reqDays}日設定済` },
     { href: "/generate", icon: Wand2, label: "シフト自動生成", desc: "最適化エンジンで自動生成" },

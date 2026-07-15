@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Users,
   CalendarDays,
+  CalendarOff,
   Settings2,
   Wand2,
   CalendarCheck,
@@ -18,6 +19,7 @@ import {
 const navItems = [
   { href: "/", label: "ダッシュボード", icon: LayoutDashboard },
   { href: "/staff", label: "スタッフ管理", icon: Users },
+  { href: "/holidays", label: "休日設定", icon: CalendarOff },
   { href: "/requests", label: "希望入力", icon: CalendarDays },
   { href: "/requirements", label: "必要人数設定", icon: Settings2 },
   { href: "/generate", label: "シフト自動生成", icon: Wand2 },

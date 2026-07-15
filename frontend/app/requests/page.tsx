@@ -11,9 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Save, Trash2, Undo2 } from "lucide-react";
 import {
   getEmployees, getRequestStatus, getHolidays, upsertRequest,
-  clearAllRequests, getRequestBackups, restoreRequest,
-  type Employee, type RequestStatus, type Holiday, type RequestBackupInfo,
+  clearAllRequests, getRequestBackups, restoreRequest, getRequests,
+  type Employee, type RequestStatus, type Holiday, type RequestBackupInfo, type ShiftRequest,
 } from "@/lib/api";
+import NotesSummary from "@/components/notes-summary";
 
 export default function RequestsPage() {
   const today = new Date();
@@ -31,18 +32,21 @@ export default function RequestsPage() {
   const [saved, setSaved] = useState(false);
   const [backups, setBackups] = useState<RequestBackupInfo[]>([]);
   const [clearing, setClearing] = useState(false);
+  const [allRequests, setAllRequests] = useState<ShiftRequest[]>([]);
 
   const load = async () => {
-    const [emps, sts, hols, bks] = await Promise.all([
+    const [emps, sts, hols, bks, reqs] = await Promise.all([
       getEmployees(),
       getRequestStatus(month),
       getHolidays(parseInt(month.split("-")[0])),
       getRequestBackups(month),
+      getRequests(month),
     ]);
     setEmployees(emps);
     setStatuses(sts);
     setHolidays(hols);
     setBackups(bks);
+    setAllRequests(reqs);
   };
 
   useEffect(() => { load(); }, [month]);
@@ -168,6 +172,17 @@ export default function RequestsPage() {
   const firstDow = new Date(calYear, calMonth - 1, 1).getDay();
   const holidayDates = new Set(holidays.map((h) => h.date));
 
+  // カレンダーに表示できない（後から休業日・祝日になった）希望休の日数
+  const hiddenOffDates = new Set(
+    Array.from(selectedDaysOff)
+      .map((key) => key.split("_")[0])
+      .filter((dateStr) => {
+        const [yy, mm, dd] = dateStr.split("-").map(Number);
+        const dow = new Date(yy, mm - 1, dd).getDay();
+        return dow === 0 || dow === 6 || holidayDates.has(dateStr);
+      })
+  );
+
   const togglePeriod = (dateStr: string, period: "am" | "pm") => {
     setSelectedDaysOff((prev) => {
       const next = new Set(prev);
@@ -278,6 +293,11 @@ export default function RequestsPage() {
               <p className="mt-2 text-sm text-muted-foreground">
                 選択中の希望休日: {selectedDaysOff.size}件（午前/午後）
               </p>
+              {hiddenOffDates.size > 0 && (
+                <p className="mt-1 text-xs text-orange-600">
+                  ※ 休業日・祝日と重なった希望休が{hiddenOffDates.size}日分あります（カレンダーには表示されませんが、保存しても消えません）
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -381,6 +401,8 @@ export default function RequestsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <NotesSummary requests={allRequests} employees={employees} />
     </div>
   );
 }

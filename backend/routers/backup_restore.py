@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from database import (
     get_db, Employee, EmployeeJobType, JobType,
     ShiftRequest, RequestDetail, DailyRequirement,
-    Schedule, ShiftAssignment,
+    Schedule, ShiftAssignment, CompanyHoliday,
 )
 from datetime import date, datetime
 import json
@@ -74,6 +74,10 @@ def export_backup(db: Session = Depends(get_db)):
                 "required_count": dr.required_count,
             }
             for dr in db.query(DailyRequirement).all()
+        ],
+        "company_holidays": [
+            {"date": ch.date.isoformat(), "name": ch.name}
+            for ch in db.query(CompanyHoliday).order_by(CompanyHoliday.date).all()
         ],
     }
     return JSONResponse(
@@ -170,12 +174,25 @@ async def restore_backup(file: UploadFile = File(...), db: Session = Depends(get
                 )
             )
 
+        # Restore company_holidays（キーが無い旧形式バックアップでは既存データを消さない）
+        if "company_holidays" in data:
+            db.query(CompanyHoliday).delete()
+            db.flush()
+            for ch in data.get("company_holidays") or []:
+                db.execute(
+                    CompanyHoliday.__table__.insert().values(
+                        date=date.fromisoformat(ch["date"]),
+                        name=ch.get("name") or "臨時休業",
+                    )
+                )
+
         db.commit()
         return {"detail": "データを復元しました", "restored": {
             "job_types": len(data.get("job_types", [])),
             "employees": len(data.get("employees", [])),
             "shift_requests": len(data.get("shift_requests", [])),
             "daily_requirements": len(data.get("daily_requirements", [])),
+            "company_holidays": len(data.get("company_holidays") or []),
         }}
 
     except Exception as e:

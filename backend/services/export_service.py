@@ -12,6 +12,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from sqlalchemy.orm import Session
 from database import Schedule, ShiftAssignment, Employee, JobType, ShiftRequest
+from routers.holidays import is_non_working_day, get_company_holiday_dates
 import calendar
 import os
 
@@ -158,6 +159,7 @@ def generate_csv(db: Session, month: str) -> str:
 def generate_excel(db: Session, month: str) -> bytes:
     employees, dates, matrix, job_types, summary, daily_totals, comment = _get_schedule_data(db, month)
     first_half, second_half = _split_dates(dates)
+    company_holidays = get_company_holiday_dates(db)
 
     wb = Workbook()
     ws = wb.active
@@ -187,7 +189,7 @@ def generate_excel(db: Session, month: str) -> bytes:
             cell.alignment = Alignment(horizontal='center', wrap_text=True)
             cell.border = thin_border
             ws.column_dimensions[cell.column_letter].width = 6
-            if d.weekday() >= 5:
+            if is_non_working_day(d, company_holidays):
                 cell.fill = PatternFill(start_color="D9D9D9", fill_type="solid")
         current_row += 1
 
@@ -203,7 +205,7 @@ def generate_excel(db: Session, month: str) -> bytes:
                 cell.border = thin_border
                 cell.font = Font(size=8)
 
-                if d.weekday() >= 5:
+                if is_non_working_day(d, company_holidays):
                     cell.fill = PatternFill(start_color="D9D9D9", fill_type="solid")
                 elif val == "希休":
                     cell.fill = PatternFill(start_color="E9D5FF", fill_type="solid")
@@ -287,6 +289,7 @@ def generate_excel(db: Session, month: str) -> bytes:
 def generate_pdf(db: Session, month: str) -> bytes:
     employees, dates, matrix, job_types, summary, daily_totals, comment = _get_schedule_data(db, month)
     first_half, second_half = _split_dates(dates)
+    company_holidays = get_company_holiday_dates(db)
 
     # コメントがある場合は各ページ下部に表示するため bottomMargin を拡張
     bottom_margin = 26 * mm if comment else 8 * mm
@@ -386,9 +389,9 @@ def generate_pdf(db: Session, month: str) -> bytes:
         else:
             style_cmds.append(('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'))
 
-        # Weekend column coloring
+        # Non-working (weekend/holiday) column coloring
         for col_idx, d in enumerate(date_slice):
-            if d.weekday() >= 5:
+            if is_non_working_day(d, company_holidays):
                 style_cmds.append(
                     ('BACKGROUND', (col_idx + 1, 0), (col_idx + 1, -1),
                      colors.Color(0.85, 0.85, 0.85))

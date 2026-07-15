@@ -200,3 +200,9 @@ class StaffRequestSubmit(BaseModel):
 class HolidayOut(BaseModel):
     date: date
     name: str
+    is_custom: bool = False  # True = 会社の臨時休業日、False = 国民の祝日
+
+
+class CompanyHolidayCreate(BaseModel):
+    date: date
+    name: str = "臨時休業"

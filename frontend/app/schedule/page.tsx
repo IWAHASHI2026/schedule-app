@@ -77,7 +77,13 @@ export default function SchedulePage() {
 
   const handleCellClick = (empId: number, dateStr: string) => {
     const dow = new Date(dateStr).getDay();
-    if (dow === 0 || dow === 6 || holidayDates.has(dateStr)) return;
+    if (dow === 0 || dow === 6 || holidayDates.has(dateStr)) {
+      // 生成後に休業日を追加した場合に残っている勤務割当だけは手動で外せるようにする
+      const a = assignmentMap[`${empId}_${dateStr}`];
+      const hasActiveWork =
+        a && a.work_type !== "off" && a.work_type !== "requested_off" && a.work_type !== "adjusted_off";
+      if (!hasActiveWork) return;
+    }
     setEditCell({ empId, date: dateStr });
   };
 

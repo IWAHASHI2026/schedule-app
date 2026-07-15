@@ -233,9 +233,14 @@ export const getReport = (month: string) => request<Report>(`/reports?month=${mo
 export interface Holiday {
   date: string;
   name: string;
+  is_custom?: boolean;  // true = 会社の臨時休業日
 }
 
 export const getHolidays = (year: number) => request<Holiday[]>(`/holidays?year=${year}`);
+export const addCompanyHoliday = (date: string, name: string) =>
+  request<Holiday>("/holidays", { method: "POST", body: JSON.stringify({ date, name }) });
+export const deleteCompanyHoliday = (date: string) =>
+  request<void>(`/holidays/${date}`, { method: "DELETE" });
 
 // ---- Staff Portal ----
 export interface StaffPortalInfo {

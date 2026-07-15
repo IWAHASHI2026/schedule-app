@@ -174,6 +174,15 @@ class RequestBackup(Base):
     employee = relationship("Employee")
 
 
+class CompanyHoliday(Base):
+    """会社の臨時休業日（年末年始・お盆など）。祝日・土日と同様に非営業日として扱う。"""
+    __tablename__ = "company_holidays"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, nullable=False, unique=True)
+    name = Column(Text, nullable=False, default="臨時休業")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def _get_existing_columns(table_name: str) -> list[str]:
     """Get existing column names for a table using SQLAlchemy inspect."""
     try:

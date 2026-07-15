@@ -5,7 +5,7 @@ from database import (
     RequestDetail, JobType,
 )
 from models import ReportOut, EmployeeReportOut
-from routers.holidays import is_non_working_day
+from routers.holidays import is_non_working_day, get_company_holiday_dates
 from datetime import date
 import calendar
 
@@ -87,7 +87,8 @@ def get_report(month: str, db: Session = Depends(get_db)):
     year, mon = map(int, month.split("-"))
     days_in_month = calendar.monthrange(year, mon)[1]
     all_dates = [date(year, mon, d) for d in range(1, days_in_month + 1)]
-    total_working_dates = sum(1 for d in all_dates if not is_non_working_day(d))
+    company_holidays = get_company_holiday_dates(db)
+    total_working_dates = sum(1 for d in all_dates if not is_non_working_day(d, company_holidays))
 
     emp_reports = []
 
@@ -98,7 +99,7 @@ def get_report(month: str, db: Session = Depends(get_db)):
         off_assignments = [a for a in emp_assignments if a.work_type in off_types]
 
         total_work = sum(a.headcount_value for a in work_assignments)
-        total_off = len([a for a in off_assignments if not is_non_working_day(a.date)])
+        total_off = len([a for a in off_assignments if not is_non_working_day(a.date, company_holidays)])
 
         jt_counts: dict[str, float] = {}
         for a in work_assignments:
@@ -121,7 +122,7 @@ def get_report(month: str, db: Session = Depends(get_db)):
             details = db.query(RequestDetail).filter(
                 RequestDetail.shift_request_id == req.id
             ).all()
-            num_off_days = len(set(d.date for d in details if not is_non_working_day(d.date)))
+            num_off_days = len(set(d.date for d in details if not is_non_working_day(d.date, company_holidays)))
 
         comment = _generate_comment(
             total_work, total_off, rw, wl,

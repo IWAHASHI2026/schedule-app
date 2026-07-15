@@ -14,6 +14,7 @@ import {
   getJobTypeAbbr,
   type Employee, type JobType, type ShiftAssignment, type ShiftRequest, type Holiday, type NlpModifyResult,
 } from "@/lib/api";
+import NotesSummary from "@/components/notes-summary";
 
 export default function GeneratePage() {
   const today = new Date();
@@ -33,6 +34,7 @@ export default function GeneratePage() {
   const [error, setError] = useState("");
   const [requestedDaysOff, setRequestedDaysOff] = useState<Record<number, Set<string>>>({}); // empId -> Set<date>
   const [holidayDates, setHolidayDates] = useState<Set<string>>(new Set());
+  const [allRequests, setAllRequests] = useState<ShiftRequest[]>([]);
 
   const load = async () => {
     const [emps, jts, statuses, reqs, schedules, shiftRequests, holidays] = await Promise.all([
@@ -60,6 +62,7 @@ export default function GeneratePage() {
       daysOffMap[sr.employee_id] = dates;
     }
     setRequestedDaysOff(daysOffMap);
+    setAllRequests(shiftRequests);
 
     if (schedules.length > 0) {
       const latest = schedules[0];
@@ -193,6 +196,8 @@ export default function GeneratePage() {
           </div>
         </CardContent>
       </Card>
+
+      <NotesSummary requests={allRequests} employees={employees} />
 
       {error && (
         <Card className="border-destructive">

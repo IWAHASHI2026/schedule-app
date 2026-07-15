@@ -1,5 +1,8 @@
-from fastapi import APIRouter
-from models import HolidayOut
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+from database import get_db, CompanyHoliday
+from models import HolidayOut, CompanyHolidayCreate
 from datetime import date
 
 router = APIRouter(prefix="/api/holidays", tags=["holidays"])
@@ -78,12 +81,59 @@ def is_holiday(d: date) -> bool:
     return any(h[0] == d for h in holidays)
 
 
-def is_non_working_day(d: date) -> bool:
-    """Saturday, Sunday, or Japanese holiday."""
-    return d.weekday() >= 5 or is_holiday(d)
+def get_company_holiday_dates(db: Session) -> frozenset[date]:
+    """会社休業日の全日付をロードする（月・年で絞らない）。
+
+    optimizer の SC-10 が前月の日付 (d-3) を参照するため、
+    対象月に限定せず全件を返す必要がある。テーブルは高々数十行。
+    """
+    return frozenset(r.date for r in db.query(CompanyHoliday.date).all())
+
+
+def is_non_working_day(d: date, company_holidays: frozenset[date] = frozenset()) -> bool:
+    """Saturday, Sunday, Japanese holiday, or company holiday."""
+    return d.weekday() >= 5 or is_holiday(d) or d in company_holidays
 
 
 @router.get("", response_model=list[HolidayOut])
-def list_holidays(year: int = 2026):
-    holidays = get_holidays_for_year(year)
-    return [HolidayOut(date=h[0], name=h[1]) for h in holidays]
+def list_holidays(year: int = 2026, db: Session = Depends(get_db)):
+    result = [HolidayOut(date=h[0], name=h[1]) for h in get_holidays_for_year(year)]
+    customs = (
+        db.query(CompanyHoliday)
+        .filter(
+            CompanyHoliday.date >= date(year, 1, 1),
+            CompanyHoliday.date <= date(year, 12, 31),
+        )
+        .all()
+    )
+    result += [HolidayOut(date=c.date, name=c.name, is_custom=True) for c in customs]
+    result.sort(key=lambda h: h.date)
+    return result
+
+
+@router.post("", response_model=HolidayOut, status_code=201)
+def add_company_holiday(body: CompanyHolidayCreate, db: Session = Depends(get_db)):
+    d = body.date
+    if d.weekday() >= 5:
+        raise HTTPException(status_code=400, detail="土日はすでに休業日です")
+    if is_holiday(d):
+        raise HTTPException(status_code=400, detail="祝日はすでに休業日です")
+    if db.query(CompanyHoliday).filter(CompanyHoliday.date == d).first():
+        raise HTTPException(status_code=400, detail="この日付はすでに登録されています")
+    rec = CompanyHoliday(date=d, name=body.name.strip() or "臨時休業")
+    db.add(rec)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="この日付はすでに登録されています")
+    return HolidayOut(date=rec.date, name=rec.name, is_custom=True)
+
+
+@router.delete("/{holiday_date}", status_code=204)
+def delete_company_holiday(holiday_date: date, db: Session = Depends(get_db)):
+    rec = db.query(CompanyHoliday).filter(CompanyHoliday.date == holiday_date).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="この日付の休業日は登録されていません")
+    db.delete(rec)
+    db.commit()

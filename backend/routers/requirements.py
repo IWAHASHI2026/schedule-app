@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database import get_db, DailyRequirement, JobType
 from models import DailyRequirementsCreate, DailyRequirementOut, RequirementsTemplate
-from routers.holidays import is_non_working_day
+from routers.holidays import is_non_working_day, get_company_holiday_dates
 from datetime import date, timedelta
 import calendar
 
@@ -63,10 +63,11 @@ def upsert_requirements(body: DailyRequirementsCreate, db: Session = Depends(get
 def apply_template(body: RequirementsTemplate, db: Session = Depends(get_db)):
     year, mon = map(int, body.month.split("-"))
     days_in_month = calendar.monthrange(year, mon)[1]
+    company_holidays = get_company_holiday_dates(db)
 
     for day_num in range(1, days_in_month + 1):
         d = date(year, mon, day_num)
-        if is_non_working_day(d):
+        if is_non_working_day(d, company_holidays):
             continue
         weekday = d.weekday()  # 0=Mon
         if weekday not in body.weekday_requirements:
