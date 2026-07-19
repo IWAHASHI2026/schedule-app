@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,9 @@ import { CheckCircle, Globe, Save } from "lucide-react";
 import {
   getEmployees, getJobTypes, getSchedules, getAssignments, getHolidays, getRequests,
   updateAssignments, updateScheduleStatus, getJobTypeAbbr,
+  getKasutori, updateKasutoriAttendance,
   type Employee, type JobType, type Schedule, type ShiftAssignment, type Holiday,
+  type KasutoriStaffMonth,
 } from "@/lib/api";
 
 export default function SchedulePage() {
@@ -26,18 +28,24 @@ export default function SchedulePage() {
   const [requestedDaysOff, setRequestedDaysOff] = useState<Record<number, Set<string>>>({});
   const [pendingChanges, setPendingChanges] = useState<Record<string, { employee_id: number; date: string; job_type_id: number | null; work_type: string }>>({});
   const [saving, setSaving] = useState(false);
+  const [kasutori, setKasutori] = useState<KasutoriStaffMonth[]>([]);
+  // key `${staffId}_${date}` -> 新しい値 (1|0)。サーバー値に戻ったらキー削除
+  const [kasutoriPending, setKasutoriPending] = useState<Record<string, number>>({});
 
   const load = async () => {
-    const [emps, jts, scheds, hols, shiftRequests] = await Promise.all([
+    const [emps, jts, scheds, hols, shiftRequests, kas] = await Promise.all([
       getEmployees(),
       getJobTypes(),
       getSchedules(month),
       getHolidays(parseInt(month.split("-")[0])),
       getRequests(month),
+      // カス取りは補助情報のため、取得失敗（旧バックエンドへの404等）でページ全体を壊さない
+      getKasutori(month).catch(() => [] as KasutoriStaffMonth[]),
     ]);
     setEmployees(emps);
     setJobTypes(jts);
     setHolidays(hols);
+    setKasutori(kas);
 
     // 希望休の日付をマッピング
     const daysOffMap: Record<number, Set<string>> = {};
@@ -60,7 +68,10 @@ export default function SchedulePage() {
     }
   };
 
-  useEffect(() => { load(); setPendingChanges({}); }, [month]);
+  const monthRef = useRef(month);
+  monthRef.current = month;
+
+  useEffect(() => { load(); setPendingChanges({}); setKasutoriPending({}); }, [month]);
 
   const [calYear, calMonth] = month.split("-").map(Number);
   const daysInMonth = new Date(calYear, calMonth, 0).getDate();
@@ -126,20 +137,58 @@ export default function SchedulePage() {
     setEditCell(null);
   };
 
+  // カス取りスタッフ: セルクリックで 出勤⇔休み を直接トグル（ポップオーバーは開かない）
+  const handleKasutoriClick = (staffId: number, d: string) => {
+    const dow = new Date(d).getDay();
+    if (dow === 0 || dow === 6 || holidayDates.has(d)) return; // 土日祝・休業日は不可
+    const key = `${staffId}_${d}`;
+    const server = kasutori.find((s) => s.staff_id === staffId)?.days[d] === "work" ? 1 : 0;
+    const current = key in kasutoriPending ? kasutoriPending[key] : server;
+    const next = current === 1 ? 0 : 1;
+    setKasutoriPending((prev) => {
+      const copy = { ...prev };
+      if (next === server) delete copy[key]; // 元に戻ったら差分から除去
+      else copy[key] = next;
+      return copy;
+    });
+  };
+
   const handleSave = async () => {
-    if (!schedule || Object.keys(pendingChanges).length === 0) return;
+    const hasRegular = Object.keys(pendingChanges).length > 0;
+    const hasKasutori = Object.keys(kasutoriPending).length > 0;
+    if (!schedule || (!hasRegular && !hasKasutori)) return;
+    const savedMonth = month;
     setSaving(true);
     try {
-      await updateAssignments(schedule.id, Object.values(pendingChanges));
-      setPendingChanges({});
-      const asn = await getAssignments(schedule.id);
-      setAssignments(asn);
+      // それぞれの保存が成功した時点で該当の未保存分だけをクリアする
+      // （片方が失敗しても、成功した方を「未保存」のまま残さない）
+      if (hasRegular) {
+        await updateAssignments(schedule.id, Object.values(pendingChanges));
+        setPendingChanges({});
+      }
+      if (hasKasutori) {
+        const items = Object.entries(kasutoriPending).map(([key, v]) => {
+          const idx = key.indexOf("_");
+          return { staff_id: Number(key.slice(0, idx)), date: key.slice(idx + 1), is_working: v };
+        });
+        await updateKasutoriAttendance(items);
+        setKasutoriPending({});
+      }
+      const [asn, kas] = await Promise.all([getAssignments(schedule.id), getKasutori(savedMonth)]);
+      // 保存中に月が切り替わっていたら古い月のデータで上書きしない
+      if (monthRef.current === savedMonth) {
+        setAssignments(asn);
+        setKasutori(kas);
+      }
+    } catch {
+      alert("保存に失敗しました。もう一度お試しください。");
     } finally {
       setSaving(false);
     }
   };
 
-  const hasPendingChanges = Object.keys(pendingChanges).length > 0;
+  const pendingCount = Object.keys(pendingChanges).length + Object.keys(kasutoriPending).length;
+  const hasPendingChanges = pendingCount > 0;
 
   const handleStatus = async (status: string) => {
     if (!schedule) return;
@@ -169,6 +218,17 @@ export default function SchedulePage() {
       .reduce((sum, a) => sum + a.headcount_value, 0);
   };
 
+  // カス取りスタッフ（通常スタッフの集計とは別データのため上記集計には混ざらない）
+  const getKasutoriStatus = (staffId: number, d: string): "work" | "off" => {
+    const key = `${staffId}_${d}`;
+    if (key in kasutoriPending) return kasutoriPending[key] === 1 ? "work" : "off";
+    return kasutori.find((s) => s.staff_id === staffId)?.days[d] === "work" ? "work" : "off";
+  };
+  const getKasutoriDailyCount = (d: string) =>
+    kasutori.reduce((n, s) => n + (getKasutoriStatus(s.staff_id, d) === "work" ? 1 : 0), 0);
+  const getKasutoriStaffTotal = (staffId: number) =>
+    allDates.reduce((n, d) => n + (getKasutoriStatus(staffId, d) === "work" ? 1 : 0), 0);
+
   const dowNames = ["日", "月", "火", "水", "木", "金", "土"];
 
   return (
@@ -179,7 +239,7 @@ export default function SchedulePage() {
           <div className="flex items-center gap-2">
             {hasPendingChanges && (
               <Button onClick={handleSave} size="sm" variant="default" disabled={saving}>
-                <Save className="mr-2 h-4 w-4" />{saving ? "保存中..." : `保存（${Object.keys(pendingChanges).length}件）`}
+                <Save className="mr-2 h-4 w-4" />{saving ? "保存中..." : `保存（${pendingCount}件）`}
               </Button>
             )}
             <Badge variant={
@@ -314,6 +374,55 @@ export default function SchedulePage() {
                     })}
                     <td className="px-1 py-1 border" />
                   </tr>
+                  {/* カス取りスタッフ（自動生成の対象外・手動入力、通常の集計とは別枠） */}
+                  {kasutori.length > 0 && (
+                    <>
+                      <tr>
+                        <td className="sticky left-0 bg-amber-50 z-10 px-2 py-1 border text-[10px] font-bold text-amber-800">
+                          カス取りスタッフ
+                        </td>
+                        <td colSpan={allDates.length + 1} className="bg-amber-50 border" />
+                      </tr>
+                      {kasutori.map((ks) => (
+                        <tr key={`kasutori-${ks.staff_id}`}>
+                          <td className="sticky left-0 bg-card z-10 px-2 py-1 border font-medium">{ks.name}</td>
+                          {allDates.map((d) => {
+                            const dow = new Date(d).getDay();
+                            const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
+                            const isWork = getKasutoriStatus(ks.staff_id, d) === "work";
+                            const isPending = `${ks.staff_id}_${d}` in kasutoriPending;
+                            return (
+                              <td
+                                key={d}
+                                onClick={() => handleKasutoriClick(ks.staff_id, d)}
+                                className={`px-1 py-1 border text-center ${isNW ? "bg-gray-100" : "cursor-pointer hover:ring-2 hover:ring-blue-300"} ${isPending ? "ring-2 ring-orange-400" : ""}`}
+                              >
+                                {!isNW && isWork && (
+                                  <span className="font-bold text-[11px] text-teal-600">出</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td className="px-1 py-1 border text-center font-bold bg-muted/50">
+                            {getKasutoriStaffTotal(ks.staff_id) || ""}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="bg-amber-50/60 font-bold">
+                        <td className="sticky left-0 bg-amber-50 z-10 px-2 py-1 border text-[10px]">カス取り計</td>
+                        {allDates.map((d) => {
+                          const dow = new Date(d).getDay();
+                          const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
+                          return (
+                            <td key={d} className="px-1 py-1 border text-center text-[10px]">
+                              {isNW ? "" : getKasutoriDailyCount(d) || ""}
+                            </td>
+                          );
+                        })}
+                        <td className="px-1 py-1 border" />
+                      </tr>
+                    </>
+                  )}
                 </tbody>
               </table>
             </div>

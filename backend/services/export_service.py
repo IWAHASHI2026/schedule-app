@@ -13,6 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from sqlalchemy.orm import Session
 from database import Schedule, ShiftAssignment, Employee, JobType, ShiftRequest
 from routers.holidays import is_non_working_day, get_company_holiday_dates
+from routers.kasutori import resolve_kasutori_month
 import calendar
 import os
 
@@ -95,6 +96,29 @@ def _split_dates(dates: list[date]) -> tuple[list[date], list[date]]:
     return first_half, second_half
 
 
+def _get_kasutori_data(db: Session, month: str):
+    """カス取りスタッフの月次出欠を返す。
+
+    Returns (staff_rows, daily_counts):
+      staff_rows: list[(name, {date: "出" | ""}, total)]
+      daily_counts: {date: int}
+    """
+    resolved = resolve_kasutori_month(db, month)
+    year, mon = map(int, month.split("-"))
+    dates = [date(year, mon, d) for d in range(1, calendar.monthrange(year, mon)[1] + 1)]
+    staff_rows = []
+    daily_counts = {d: 0 for d in dates}
+    for s in resolved:
+        cells = {}
+        for d in dates:
+            working = s["days"][d.isoformat()] == "work"
+            cells[d] = "出" if working else ""
+            if working:
+                daily_counts[d] += 1
+        staff_rows.append((s["name"], cells, s["total"]))
+    return staff_rows, daily_counts
+
+
 def _fmt_val(val: float) -> str:
     """Format a summary value: integer if whole, one decimal otherwise, empty if 0."""
     if val == 0:
@@ -111,6 +135,7 @@ def _fmt_val(val: float) -> str:
 def generate_csv(db: Session, month: str) -> str:
     employees, dates, matrix, job_types, summary, daily_totals, comment = _get_schedule_data(db, month)
     first_half, second_half = _split_dates(dates)
+    kasutori_rows, kasutori_daily = _get_kasutori_data(db, month)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -142,6 +167,16 @@ def generate_csv(db: Session, month: str) -> str:
             total_row.append(_fmt_val(daily_totals[d]))
         writer.writerow(total_row)
 
+        # カス取りスタッフ（通常スタッフの集計とは別枠）
+        if kasutori_rows:
+            writer.writerow(["カス取りスタッフ"])
+            for name, cells, _total in kasutori_rows:
+                writer.writerow([name] + [cells[d] for d in date_slice])
+            writer.writerow(
+                ["カス取り計"]
+                + [str(kasutori_daily[d]) if kasutori_daily[d] else "" for d in date_slice]
+            )
+
         # Blank separator between halves
         writer.writerow([])
 
@@ -160,6 +195,7 @@ def generate_excel(db: Session, month: str) -> bytes:
     employees, dates, matrix, job_types, summary, daily_totals, comment = _get_schedule_data(db, month)
     first_half, second_half = _split_dates(dates)
     company_holidays = get_company_holiday_dates(db)
+    kasutori_rows, kasutori_daily = _get_kasutori_data(db, month)
 
     wb = Workbook()
     ws = wb.active
@@ -250,6 +286,45 @@ def generate_excel(db: Session, month: str) -> bytes:
             cell.fill = PatternFill(start_color="E0E0E0", fill_type="solid")
         current_row += 1
 
+        # カス取りスタッフ（通常スタッフの集計とは別枠）
+        if kasutori_rows:
+            label_cell = ws.cell(row=current_row, column=1, value="カス取りスタッフ")
+            label_cell.border = thin_border
+            label_cell.font = Font(size=8, bold=True)
+            label_cell.fill = PatternFill(start_color="FFF3CD", fill_type="solid")
+            for col_idx in range(2, len(date_slice) + 2):
+                cell = ws.cell(row=current_row, column=col_idx)
+                cell.border = thin_border
+                cell.fill = PatternFill(start_color="FFF3CD", fill_type="solid")
+            current_row += 1
+
+            for name, cells_map, _total in kasutori_rows:
+                name_cell = ws.cell(row=current_row, column=1, value=name)
+                name_cell.border = thin_border
+                name_cell.font = Font(size=8)
+                for col_idx, d in enumerate(date_slice, start=2):
+                    cell = ws.cell(row=current_row, column=col_idx)
+                    cell.value = cells_map[d] or None
+                    cell.alignment = Alignment(horizontal='center')
+                    cell.border = thin_border
+                    cell.font = Font(size=8)
+                    if is_non_working_day(d, company_holidays):
+                        cell.fill = PatternFill(start_color="D9D9D9", fill_type="solid")
+                current_row += 1
+
+            kcount_name = ws.cell(row=current_row, column=1, value="カス取り計")
+            kcount_name.border = thin_border
+            kcount_name.font = Font(size=8, bold=True)
+            kcount_name.fill = PatternFill(start_color="E0E0E0", fill_type="solid")
+            for col_idx, d in enumerate(date_slice, start=2):
+                cell = ws.cell(row=current_row, column=col_idx)
+                cell.value = str(kasutori_daily[d]) if kasutori_daily[d] else None
+                cell.alignment = Alignment(horizontal='center')
+                cell.border = thin_border
+                cell.font = Font(size=8, bold=True)
+                cell.fill = PatternFill(start_color="E0E0E0", fill_type="solid")
+            current_row += 1
+
         # Gap between halves
         current_row += 2
 
@@ -290,6 +365,7 @@ def generate_pdf(db: Session, month: str) -> bytes:
     employees, dates, matrix, job_types, summary, daily_totals, comment = _get_schedule_data(db, month)
     first_half, second_half = _split_dates(dates)
     company_holidays = get_company_holiday_dates(db)
+    kasutori_rows, kasutori_daily = _get_kasutori_data(db, month)
 
     # コメントがある場合は各ページ下部に表示するため bottomMargin を拡張
     bottom_margin = 26 * mm if comment else 8 * mm
@@ -365,6 +441,16 @@ def generate_pdf(db: Session, month: str) -> bytes:
             total_row.append(_fmt_val(daily_totals[d]))
         data.append(total_row)
 
+        # カス取りスタッフ（通常スタッフの集計とは別枠）
+        if kasutori_rows:
+            data.append(["カス取りスタッフ"] + [""] * len(date_slice))
+            for name, cells_map, _total in kasutori_rows:
+                data.append([name] + [cells_map[d] for d in date_slice])
+            data.append(
+                ["カス取り計"]
+                + [str(kasutori_daily[d]) if kasutori_daily[d] else "" for d in date_slice]
+            )
+
         # Column widths
         name_width = 45
         available_width = landscape(A4)[0] - 16 * mm - name_width
@@ -432,6 +518,18 @@ def generate_pdf(db: Session, month: str) -> bytes:
         style_cmds.append(
             ('BACKGROUND', (0, summary_end), (-1, summary_end),
              colors.Color(0.88, 0.88, 0.88)))
+
+        # カス取りスタッフ行のスタイル（見出し行とカス取り計行の全行背景。
+        # 後勝ちのため週末列の灰色を上書きし、既存の合計行スタイルには影響しない）
+        if kasutori_rows:
+            kasutori_label = summary_end + 1
+            kasutori_total = kasutori_label + len(kasutori_rows) + 1
+            style_cmds.append(
+                ('BACKGROUND', (0, kasutori_label), (-1, kasutori_label),
+                 colors.Color(1.0, 0.95, 0.80)))
+            style_cmds.append(
+                ('BACKGROUND', (0, kasutori_total), (-1, kasutori_total),
+                 colors.Color(0.88, 0.88, 0.88)))
 
         table.setStyle(TableStyle(style_cmds))
         elements.append(table)

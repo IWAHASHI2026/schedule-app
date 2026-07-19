@@ -11,6 +11,7 @@ from database import (
     get_db, Employee, EmployeeJobType, JobType,
     ShiftRequest, RequestDetail, DailyRequirement,
     Schedule, ShiftAssignment, CompanyHoliday,
+    KasutoriStaff, KasutoriAttendance,
 )
 from datetime import date, datetime
 import json
@@ -78,6 +79,15 @@ def export_backup(db: Session = Depends(get_db)):
         "company_holidays": [
             {"date": ch.date.isoformat(), "name": ch.name}
             for ch in db.query(CompanyHoliday).order_by(CompanyHoliday.date).all()
+        ],
+        "kasutori_staff": [
+            {"id": s.id, "name": s.name, "sort_order": s.sort_order,
+             "default_weekdays": s.default_weekdays}
+            for s in db.query(KasutoriStaff).order_by(KasutoriStaff.sort_order).all()
+        ],
+        "kasutori_attendance": [
+            {"staff_id": a.staff_id, "date": a.date.isoformat(), "is_working": a.is_working}
+            for a in db.query(KasutoriAttendance).all()
         ],
     }
     return JSONResponse(
@@ -186,6 +196,29 @@ async def restore_backup(file: UploadFile = File(...), db: Session = Depends(get
                     )
                 )
 
+        # Restore kasutori（キーが無い旧形式バックアップでは既存データを消さない）
+        if "kasutori_staff" in data:
+            db.query(KasutoriAttendance).delete()
+            db.query(KasutoriStaff).delete()
+            db.flush()
+            for s in data.get("kasutori_staff") or []:
+                db.execute(
+                    KasutoriStaff.__table__.insert().values(
+                        id=s["id"], name=s["name"],
+                        sort_order=s.get("sort_order", 0),
+                        default_weekdays=s.get("default_weekdays", ""),
+                    )
+                )
+            db.flush()
+            for a in data.get("kasutori_attendance") or []:
+                db.execute(
+                    KasutoriAttendance.__table__.insert().values(
+                        staff_id=a["staff_id"],
+                        date=date.fromisoformat(a["date"]),
+                        is_working=a.get("is_working", 0),
+                    )
+                )
+
         db.commit()
         return {"detail": "データを復元しました", "restored": {
             "job_types": len(data.get("job_types", [])),
@@ -193,6 +226,7 @@ async def restore_backup(file: UploadFile = File(...), db: Session = Depends(get
             "shift_requests": len(data.get("shift_requests", [])),
             "daily_requirements": len(data.get("daily_requirements", [])),
             "company_holidays": len(data.get("company_holidays") or []),
+            "kasutori_staff": len(data.get("kasutori_staff") or []),
         }}
 
     except Exception as e:

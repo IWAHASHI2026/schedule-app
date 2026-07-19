@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text as sa_text
 from database import init_db, cleanup_old_schedules, engine, _is_sqlite
-from routers import employees, job_types, requests, requirements, schedules, nlp_modify, reports, export, holidays, staff_portal, backup_restore
+from routers import employees, job_types, requests, requirements, schedules, nlp_modify, reports, export, holidays, staff_portal, backup_restore, kasutori
 
 app = FastAPI(title="Shift Scheduler API", version="1.0.0")
 
@@ -44,6 +44,7 @@ app.include_router(export.router)
 app.include_router(holidays.router)
 app.include_router(staff_portal.router)
 app.include_router(backup_restore.router)
+app.include_router(kasutori.router)
 
 
 @app.on_event("startup")

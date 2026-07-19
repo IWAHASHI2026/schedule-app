@@ -272,6 +272,25 @@ export const generateToken = (employeeId: number) =>
 export const revokeToken = (employeeId: number) =>
   request<void>(`/employees/${employeeId}/token`, { method: "DELETE" });
 
+// ---- カス取りスタッフ ----
+export interface KasutoriStaffMonth {
+  staff_id: number;
+  name: string;
+  sort_order: number;
+  days: Record<string, "work" | "off">;  // 全日付分、サーバー側で解決済み
+  total: number;
+}
+
+export const getKasutori = (month: string) =>
+  request<KasutoriStaffMonth[]>(`/kasutori?month=${month}`);
+export const updateKasutoriAttendance = (
+  items: { staff_id: number; date: string; is_working: number }[]
+) =>
+  request<{ status: string; saved: number }>("/kasutori/attendance", {
+    method: "PUT",
+    body: JSON.stringify({ items }),
+  });
+
 // ---- Export ----
 export const getExportUrl = (type: "csv" | "excel" | "pdf", month: string) =>
   `${API_BASE}/export/${type}?month=${month}`;

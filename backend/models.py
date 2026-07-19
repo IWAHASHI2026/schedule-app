@@ -206,3 +206,23 @@ class HolidayOut(BaseModel):
 class CompanyHolidayCreate(BaseModel):
     date: date
     name: str = "臨時休業"
+
+
+# ---- カス取りスタッフ ----
+
+class KasutoriStaffMonthOut(BaseModel):
+    staff_id: int
+    name: str
+    sort_order: int = 0
+    days: dict[str, str]  # "YYYY-MM-DD" -> "work" | "off"（当月の全日付を含む）
+    total: int            # "work" の日数
+
+
+class KasutoriAttendanceItem(BaseModel):
+    staff_id: int
+    date: date
+    is_working: int  # 1=出勤, 0=休み
+
+
+class KasutoriAttendanceUpdate(BaseModel):
+    items: list[KasutoriAttendanceItem]

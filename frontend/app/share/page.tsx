@@ -7,8 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { CalendarCheck } from "lucide-react";
 import {
   getEmployees, getJobTypes, getSchedules, getAssignments, getHolidays, getRequests,
-  getJobTypeAbbr,
+  getJobTypeAbbr, getKasutori,
   type Employee, type JobType, type Schedule, type ShiftAssignment, type Holiday,
+  type KasutoriStaffMonth,
 } from "@/lib/api";
 
 function SharePageContent() {
@@ -21,6 +22,7 @@ function SharePageContent() {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(true);
   const [requestedDaysOff, setRequestedDaysOff] = useState<Record<number, Set<string>>>({});
+  const [kasutori, setKasutori] = useState<KasutoriStaffMonth[]>([]);
 
   // Hide navigation sidebar for public view
   useEffect(() => {
@@ -38,16 +40,19 @@ function SharePageContent() {
     if (!month) { setLoading(false); return; }
     (async () => {
       try {
-        const [emps, jts, scheds, hols, shiftRequests] = await Promise.all([
+        const [emps, jts, scheds, hols, shiftRequests, kas] = await Promise.all([
           getEmployees(),
           getJobTypes(),
           getSchedules(month),
           getHolidays(parseInt(month.split("-")[0])),
           getRequests(month),
+          // カス取りは補助情報のため、取得失敗でページ全体を壊さない
+          getKasutori(month).catch(() => [] as KasutoriStaffMonth[]),
         ]);
         setEmployees(emps);
         setJobTypes(jts);
         setHolidays(hols);
+        setKasutori(kas);
 
         // 希望休の日付をマッピング
         const daysOffMap: Record<number, Set<string>> = {};
@@ -219,6 +224,46 @@ function SharePageContent() {
                     );
                   })}
                 </tr>
+                {/* カス取りスタッフ（自動生成の対象外、通常の集計とは別枠・読み取り専用） */}
+                {kasutori.length > 0 && (
+                  <>
+                    <tr>
+                      <td className="sticky left-0 bg-amber-50 z-10 px-1 py-0.5 sm:px-2 sm:py-1 border text-[8px] sm:text-[10px] font-bold text-amber-800">
+                        カス取りスタッフ
+                      </td>
+                      <td colSpan={allDates.length} className="bg-amber-50 border" />
+                    </tr>
+                    {kasutori.map((ks) => (
+                      <tr key={`kasutori-${ks.staff_id}`}>
+                        <td className="sticky left-0 bg-card z-10 px-1 py-0.5 sm:px-2 sm:py-1 border font-medium">{ks.name}</td>
+                        {allDates.map((d) => {
+                          const dow = new Date(d).getDay();
+                          const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
+                          return (
+                            <td key={d} className={`px-0.5 py-0.5 sm:px-1 sm:py-1 border text-center ${isNW ? "bg-gray-100" : ""}`}>
+                              {!isNW && ks.days[d] === "work" && (
+                                <span className="font-bold text-[9px] sm:text-[11px] text-teal-600">出</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                    <tr className="bg-amber-50/60 font-bold">
+                      <td className="sticky left-0 bg-amber-50 z-10 px-1 py-0.5 sm:px-2 sm:py-1 border text-[8px] sm:text-[10px]">カス取り計</td>
+                      {allDates.map((d) => {
+                        const dow = new Date(d).getDay();
+                        const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
+                        const count = kasutori.reduce((n, s) => n + (s.days[d] === "work" ? 1 : 0), 0);
+                        return (
+                          <td key={d} className="px-0.5 py-0.5 sm:px-1 sm:py-1 border text-center text-[8px] sm:text-[10px]">
+                            {isNW ? "" : count || ""}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  </>
+                )}
               </tbody>
             </table>
           </div>

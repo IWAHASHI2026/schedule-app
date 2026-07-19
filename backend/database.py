@@ -1,6 +1,6 @@
 from sqlalchemy import (
     create_engine, Column, Integer, Text, DateTime, Date, Float, ForeignKey,
-    event, inspect as sa_inspect, text as sa_text
+    UniqueConstraint, event, inspect as sa_inspect, text as sa_text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
 from datetime import datetime, date
@@ -181,6 +181,34 @@ class CompanyHoliday(Base):
     date = Column(Date, nullable=False, unique=True)
     name = Column(Text, nullable=False, default="臨時休業")
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class KasutoriStaff(Base):
+    """カス取りスタッフ（シフト自動生成の対象外。管理者が手動で出欠を管理する）。"""
+    __tablename__ = "kasutori_staff"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    # Python weekday 規約: Mon=0..Sun=6。例 "0,1,2" = 月火水
+    default_weekdays = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    attendances = relationship(
+        "KasutoriAttendance", back_populates="staff", cascade="all, delete-orphan"
+    )
+
+
+class KasutoriAttendance(Base):
+    """カス取りスタッフの出欠上書き（デフォルト曜日パターンとの差分のみ保存）。"""
+    __tablename__ = "kasutori_attendance"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    staff_id = Column(Integer, ForeignKey("kasutori_staff.id", ondelete="CASCADE"), nullable=False)
+    date = Column(Date, nullable=False)
+    is_working = Column(Integer, nullable=False, default=0)  # 1=出勤, 0=休み
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    staff = relationship("KasutoriStaff", back_populates="attendances")
+    __table_args__ = (UniqueConstraint("staff_id", "date", name="uq_kasutori_staff_date"),)
 
 
 def _get_existing_columns(table_name: str) -> list[str]:
@@ -454,6 +482,16 @@ def init_db():
                     if jt_name in jt_map:
                         db.add(EmployeeJobType(employee_id=emp.id, job_type_id=jt_map[jt_name]))
             db.commit()
+
+        if db.query(KasutoriStaff).count() == 0:
+            kasutori_seed = [
+                ("鈴木美代子", "0,1,2"),    # 月火水
+                ("新井理恵",   "1,2,3,4"),  # 火水木金
+                ("小越弓子",   "3,4"),      # 木金
+            ]
+            for idx, (name, wd) in enumerate(kasutori_seed):
+                db.add(KasutoriStaff(name=name, sort_order=idx, default_weekdays=wd))
+            db.commit()
     finally:
         db.close()
 
@@ -520,12 +558,23 @@ def cleanup_old_schedules(db: Session | None = None) -> int:
                 "保管期限クリーンアップ: %d件の日別必要人数を削除", req_count,
             )
 
-        if schedule_count > 0 or request_count > 0 or req_count > 0:
+        # 古いカス取り出欠の上書きを削除
+        kasutori_count = (
+            db.query(KasutoriAttendance)
+            .filter(KasutoriAttendance.date < cutoff_date)
+            .delete()
+        )
+        if kasutori_count > 0:
+            logger.info(
+                "保管期限クリーンアップ: %d件のカス取り出欠を削除", kasutori_count,
+            )
+
+        if schedule_count > 0 or request_count > 0 or req_count > 0 or kasutori_count > 0:
             db.commit()
         else:
             logger.debug("保管期限クリーンアップ: 削除対象なし (カットオフ: %s)", cutoff_str)
 
-        return schedule_count + request_count + req_count
+        return schedule_count + request_count + req_count + kasutori_count
     except Exception:
         db.rollback()
         logger.exception("保管期限クリーンアップに失敗しました")
