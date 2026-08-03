@@ -487,6 +487,7 @@ def init_db():
             kasutori_seed = [
                 ("鈴木美代子", "0,1,2"),    # 月火水
                 ("新井理恵",   "1,2,3,4"),  # 火水木金
+                ("岸萌美",     "0,2,3,4"),  # 月水木金
             ]
             for idx, (name, wd) in enumerate(kasutori_seed):
                 db.add(KasutoriStaff(name=name, sort_order=idx, default_weekdays=wd))
@@ -500,6 +501,21 @@ def init_db():
                 db.delete(s)
                 removed = True
         if removed:
+            db.commit()
+
+        # 途中入社のカス取りスタッフを追加（既存DBにも適用。名前で冪等に追加）
+        additional_kasutori = [
+            ("岸萌美", "0,2,3,4"),  # 月水木金（2026-07 追加）
+        ]
+        added = False
+        for name, wd in additional_kasutori:
+            if not db.query(KasutoriStaff).filter(KasutoriStaff.name == name).first():
+                max_order = max(
+                    (s.sort_order for s in db.query(KasutoriStaff).all()), default=-1
+                )
+                db.add(KasutoriStaff(name=name, sort_order=max_order + 1, default_weekdays=wd))
+                added = True
+        if added:
             db.commit()
     finally:
         db.close()
