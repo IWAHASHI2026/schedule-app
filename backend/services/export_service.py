@@ -428,12 +428,7 @@ def generate_pdf(db: Session, month: str) -> bytes:
 
         num_emp_rows = len(employees)
 
-        # Summary rows per job type
-        for jt in job_types:
-            row = [jt.name]
-            for d in date_slice:
-                row.append(_fmt_val(summary[jt.id][d]))
-            data.append(row)
+        # 職種別集計行は PDF には出さない（A4 印刷で行がはみ出るため。CSV/Excel には残す）
 
         # Daily total row
         total_row = ["合計"]
@@ -508,21 +503,16 @@ def generate_pdf(db: Session, month: str) -> bytes:
                                 ('BACKGROUND', (col_idx + 1, row_idx), (col_idx + 1, row_idx), color))
                             break
 
-        # Summary rows styling (light gray background)
-        summary_start = 1 + num_emp_rows
-        summary_end = summary_start + len(job_types)  # total row index
+        # Total row styling (職種別集計行は無いため、従業員行の直後が合計行)
+        total_row_idx = 1 + num_emp_rows
         style_cmds.append(
-            ('BACKGROUND', (0, summary_start), (-1, summary_end - 1),
-             colors.Color(0.94, 0.94, 0.94)))
-        # Total row slightly darker
-        style_cmds.append(
-            ('BACKGROUND', (0, summary_end), (-1, summary_end),
+            ('BACKGROUND', (0, total_row_idx), (-1, total_row_idx),
              colors.Color(0.88, 0.88, 0.88)))
 
         # カス取りスタッフ行のスタイル（見出し行とカス取り計行の全行背景。
         # 後勝ちのため週末列の灰色を上書きし、既存の合計行スタイルには影響しない）
         if kasutori_rows:
-            kasutori_label = summary_end + 1
+            kasutori_label = total_row_idx + 1
             kasutori_total = kasutori_label + len(kasutori_rows) + 1
             style_cmds.append(
                 ('BACKGROUND', (0, kasutori_label), (-1, kasutori_label),
