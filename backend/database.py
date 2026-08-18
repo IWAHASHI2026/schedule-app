@@ -472,6 +472,7 @@ def init_db():
                 ("石原圭子",   "full_time", ["lkデータ", "手紙", "その他"]),
                 ("工藤友里",   "full_time", ["lkデータ", "手紙", "その他"]),
                 ("近藤美佐子", "full_time", ["手紙", "その他"]),
+                ("竹下久美子", "dependent", ["手紙", "その他"]),
             ]
             jt_map = {jt.name: jt.id for jt in db.query(JobType).all()}
             for idx, (name, emp_type, jt_names) in enumerate(seed_data):
@@ -516,6 +517,28 @@ def init_db():
                 db.add(KasutoriStaff(name=name, sort_order=max_order + 1, default_weekdays=wd))
                 added = True
         if added:
+            db.commit()
+
+        # 途中入社の通常スタッフを追加（既存DBにも適用。名前で冪等に追加）
+        additional_employees = [
+            # (name, employment_type, job_type_names)
+            ("竹下久美子", "dependent", ["手紙", "その他"]),  # 2026-08 追加
+        ]
+        emp_added = False
+        jt_map_add = {jt.name: jt.id for jt in db.query(JobType).all()}
+        for name, emp_type, jt_names in additional_employees:
+            if not db.query(Employee).filter(Employee.name == name).first():
+                max_order = max(
+                    (e.sort_order for e in db.query(Employee).all()), default=-1
+                )
+                emp = Employee(name=name, employment_type=emp_type, sort_order=max_order + 1)
+                db.add(emp)
+                db.flush()
+                for jt_name in jt_names:
+                    if jt_name in jt_map_add:
+                        db.add(EmployeeJobType(employee_id=emp.id, job_type_id=jt_map_add[jt_name]))
+                emp_added = True
+        if emp_added:
             db.commit()
     finally:
         db.close()

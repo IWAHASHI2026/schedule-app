@@ -67,6 +67,7 @@ export default function RequestsPage() {
     "石原圭子": "16",
     "工藤友里": "max",
     "近藤美佐子": "max",
+    "竹下久美子": "12",
   };
 
   const getDefaultWorkDays = (empId: string): string => {
