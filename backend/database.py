@@ -472,7 +472,7 @@ def init_db():
                 ("石原圭子",   "full_time", ["lkデータ", "手紙", "その他"]),
                 ("工藤友里",   "full_time", ["lkデータ", "手紙", "その他"]),
                 ("近藤美佐子", "full_time", ["手紙", "その他"]),
-                ("竹下久美子", "dependent", ["手紙", "その他"]),
+                ("竹下久美子", "dependent", ["その他"]),
             ]
             jt_map = {jt.name: jt.id for jt in db.query(JobType).all()}
             for idx, (name, emp_type, jt_names) in enumerate(seed_data):
@@ -522,7 +522,7 @@ def init_db():
         # 途中入社の通常スタッフを追加（既存DBにも適用。名前で冪等に追加）
         additional_employees = [
             # (name, employment_type, job_type_names)
-            ("竹下久美子", "dependent", ["手紙", "その他"]),  # 2026-08 追加
+            ("竹下久美子", "dependent", ["その他"]),  # 2026-08 追加
         ]
         emp_added = False
         jt_map_add = {jt.name: jt.id for jt in db.query(JobType).all()}
@@ -540,6 +540,23 @@ def init_db():
                 emp_added = True
         if emp_added:
             db.commit()
+
+        # 竹下久美子の担当職種を修正: 初期登録の誤り（手紙・その他）→（その他のみ）
+        # 既存DBにも適用。手動で別の組み合わせに変更済みの場合は触らない
+        takeshita = db.query(Employee).filter(Employee.name == "竹下久美子").first()
+        if takeshita:
+            jt_id_to_name = {jt.id: jt.name for jt in db.query(JobType).all()}
+            links = (
+                db.query(EmployeeJobType)
+                .filter(EmployeeJobType.employee_id == takeshita.id)
+                .all()
+            )
+            current = {jt_id_to_name.get(l.job_type_id) for l in links}
+            if current == {"手紙", "その他"}:
+                for l in links:
+                    if jt_id_to_name.get(l.job_type_id) == "手紙":
+                        db.delete(l)
+                db.commit()
     finally:
         db.close()
 
