@@ -473,6 +473,7 @@ def init_db():
                 ("工藤友里",   "full_time", ["lkデータ", "手紙", "その他"]),
                 ("近藤美佐子", "full_time", ["手紙", "その他"]),
                 ("竹下久美子", "dependent", ["その他"]),
+                ("飛塚由希",   "full_time", ["手紙", "その他"]),
             ]
             jt_map = {jt.name: jt.id for jt in db.query(JobType).all()}
             for idx, (name, emp_type, jt_names) in enumerate(seed_data):
@@ -522,7 +523,8 @@ def init_db():
         # 途中入社の通常スタッフを追加（既存DBにも適用。名前で冪等に追加）
         additional_employees = [
             # (name, employment_type, job_type_names)
-            ("竹下久美子", "dependent", ["その他"]),  # 2026-08 追加
+            ("竹下久美子", "dependent", ["その他"]),          # 2026-08 追加
+            ("飛塚由希",   "full_time", ["手紙", "その他"]),  # 2026-09 追加
         ]
         emp_added = False
         jt_map_add = {jt.name: jt.id for jt in db.query(JobType).all()}

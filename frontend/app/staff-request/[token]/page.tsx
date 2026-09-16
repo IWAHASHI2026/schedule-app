@@ -30,6 +30,7 @@ const defaultWorkDaysMap: Record<string, string> = {
   "工藤友里": "max",
   "近藤美佐子": "max",
   "竹下久美子": "12",
+  "飛塚由希": "max",
 };
 
 export default function StaffRequestPage() {
