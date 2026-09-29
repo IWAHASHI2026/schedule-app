@@ -7,7 +7,8 @@ from datetime import date
 
 router = APIRouter(prefix="/api/holidays", tags=["holidays"])
 
-# Japanese holidays (2025-2027 covering typical usage)
+# Japanese holidays (2025-2028 covering typical usage)
+# 未登録の年は祝日なし(平日扱い)になる。翌年分は、その年の1月のシフトを作る前に追加すること。
 JAPANESE_HOLIDAYS: dict[int, list[tuple[date, str]]] = {
     2025: [
         (date(2025, 1, 1), "元日"),
@@ -68,6 +69,26 @@ JAPANESE_HOLIDAYS: dict[int, list[tuple[date, str]]] = {
         (date(2027, 10, 11), "スポーツの日"),
         (date(2027, 11, 3), "文化の日"),
         (date(2027, 11, 23), "勤労感謝の日"),
+    ],
+    # 2028 年の春分の日・秋分の日は国立天文台の予測値。正式決定は 2027 年 2 月の
+    # 官報(暦要項)なので、公表後に日付が同じであることを確認する。
+    2028: [
+        (date(2028, 1, 1), "元日"),
+        (date(2028, 1, 10), "成人の日"),
+        (date(2028, 2, 11), "建国記念の日"),
+        (date(2028, 2, 23), "天皇誕生日"),
+        (date(2028, 3, 20), "春分の日"),
+        (date(2028, 4, 29), "昭和の日"),
+        (date(2028, 5, 3), "憲法記念日"),
+        (date(2028, 5, 4), "みどりの日"),
+        (date(2028, 5, 5), "こどもの日"),
+        (date(2028, 7, 17), "海の日"),
+        (date(2028, 8, 11), "山の日"),
+        (date(2028, 9, 18), "敬老の日"),
+        (date(2028, 9, 22), "秋分の日"),
+        (date(2028, 10, 9), "スポーツの日"),
+        (date(2028, 11, 3), "文化の日"),
+        (date(2028, 11, 23), "勤労感謝の日"),
     ],
 }
 
