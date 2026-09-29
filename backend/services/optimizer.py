@@ -30,10 +30,11 @@ Soft constraints (objective function):
                      日数指定 = その日数 (ハード上限でもある)
                      未入力の扶養内 = 10日
          - 人が余る月に調整休を入れる順番 (重みが小さいほど先):
-             1. 扶養内 (weight 25。10日の目安までは先に減らす)
-             2. フル勤務で日数指定、および目安を下回る扶養内 (weight 200)
+             1. 扶養内 (weight 25)
+             2. フル勤務で日数指定 (weight 200)
              3. フル勤務で「なるべく多く」・未入力 (weight 1600。原則として減らさない)
          - 同じ順番の中では不足の日数が均等になる
+         - 扶養内の出勤日数の目安 (下限) は設けていない
   仕事バランス:
     SC-04: Job type balance per employee (weight 10, 全社員で統一)
     SC-08: Cross-employee fairness per job type across all qualified employees (weight 5, 全社員で統一)
@@ -464,8 +465,8 @@ def generate_schedule(
     # 不足 1 単位あたりの費用を一定にすると、1人に集めても合計が変わらず特定の人に
     # 偏るため、不足が大きい人ほど重く評価する（2乗）。
     # 調整休を入れる順番は重みの大小で表す（小さいほど先に減らす）:
-    #   1. 扶養内（DEPENDENT_FLOOR_DAYS までは先に減らす）
-    #   2. フル勤務で日数指定、および目安を下回る扶養内
+    #   1. 扶養内
+    #   2. フル勤務で日数指定
     #   3. フル勤務で「なるべく多く」・未入力（原則として減らさない）
     SC01_WEIGHT_DEPENDENT = 25
     SC01_WEIGHT_FULLTIME = 200
@@ -474,7 +475,10 @@ def generate_schedule(
     # 出勤できない事情で不足が膨らんだときに、他のペナルティを上回らないようにするため。
     SC01_PROTECTED_STEP_CAP = 11
     DEPENDENT_DEFAULT_TARGET = 10  # 希望未入力の扶養内の希望日数
-    DEPENDENT_FLOOR_DAYS = 10      # 扶養内の出勤日数の目安
+    # 扶養内の出勤日数の目安。0 は目安なし（扶養内を先に減らし続ける）。
+    # 日数を入れると、その日数までは先に減らし、下回る分はフル勤務の日数指定と
+    # 同じ重みで分け合う（出勤日数がそろう代わりに、フル勤務にも調整休が入る）。
+    DEPENDENT_FLOOR_DAYS = 0
 
     for e_id in emp_ids:
         rw = emp_requested_work.get(e_id)
@@ -508,7 +512,7 @@ def generate_schedule(
 
         # 不足 1 単位(0.5日)ごとの増分。k 単位目の増分が steps[k-1]
         if not is_fulltime:
-            cheap = max(0, want - DEPENDENT_FLOOR_DAYS * 2)  # 目安より上の分
+            cheap = max(0, want - DEPENDENT_FLOOR_DAYS * 2)  # 目安より上の分（目安なしなら全部）
             steps = [SC01_WEIGHT_DEPENDENT * (2 * k - 1) for k in range(1, cheap + 1)]
             for k in range(1, want - cheap + 1):
                 step = SC01_WEIGHT_FULLTIME * (2 * k - 1)
