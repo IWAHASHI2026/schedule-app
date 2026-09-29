@@ -18,6 +18,8 @@ Soft-hard constraints（可能な限り守るが、不可能なら違反とし�
   HC-06 下限: 職人・サブ職人は各営業日に1名配置（penalty 1,000,000）
   HC-04b: 日別必要人数未設定の職種への配置禁止（penalty 100,000）
   HC-07:  週出勤日数上限（penalty 500,000 per 超過日）
+         - 月初の週が前月から続いている場合は、前月のシフトでその週に
+           出勤した日数を差し引いた残りを、その週の上限にする
   HC-08:  連休明け1日目に調整休を入れない（penalty 1,000,000）
   → 違反時は violations リストに日本語メッセージとして追加
 
@@ -63,6 +65,47 @@ from datetime import date, timedelta
 
 logger = logging.getLogger(__name__)
 import calendar
+
+
+def _prev_month_week_work_days(db: Session, month_start: date) -> dict[int, int]:
+    """月初の週が前月から続いている場合に、前月のシフトでその週に出勤した日数を返す。
+
+    Returns: e_id -> 出勤日数。半日勤務も1日として数える（HC-07 と同じ数え方）。
+    月初が月曜の場合と、前月のシフトが無い場合は空。
+    """
+    week_start = month_start - timedelta(days=month_start.weekday())  # その週の月曜
+    if week_start == month_start:
+        return {}
+
+    prev_month = f"{week_start.year:04d}-{week_start.month:02d}"
+    prev_schedules = (
+        db.query(Schedule)
+        .filter(Schedule.target_month == prev_month)
+        .order_by(Schedule.id.desc())
+        .all()
+    )
+    if not prev_schedules:
+        return {}
+    # 同じ月に複数のシフトがあるので、公開済みの最新を優先し、無ければ最新のものを使う
+    prev_schedule = next(
+        (s for s in prev_schedules if s.status == "published"), prev_schedules[0]
+    )
+
+    prev_assignments = (
+        db.query(ShiftAssignment)
+        .filter(
+            ShiftAssignment.schedule_id == prev_schedule.id,
+            ShiftAssignment.date >= week_start,
+            ShiftAssignment.date < month_start,
+        )
+        .all()
+    )
+    worked_dates: dict[int, set[date]] = {}
+    for a in prev_assignments:
+        if a.job_type_id is None or a.work_type in ("off", "requested_off", "adjusted_off"):
+            continue
+        worked_dates.setdefault(a.employee_id, set()).add(a.date)
+    return {e_id: len(dates) for e_id, dates in worked_dates.items()}
 
 
 def generate_schedule(
@@ -298,6 +341,24 @@ def generate_schedule(
         iso_year, iso_week, _ = d.isocalendar()
         weeks[(iso_year, iso_week)].append(d)
 
+    # 月をまたぐ週は、前月のシフトでその週に出勤した日数を上限から差し引く。
+    # 対象になるのは月初の週だけ。月末側は翌月の生成時に同じ処理で吸収される。
+    carry_week_key = tuple(start_date.isocalendar()[:2])
+    prev_week_worked = (
+        _prev_month_week_work_days(db, start_date) if carry_week_key in weeks else {}
+    )
+
+    def carried_days(e_id: int, week_key: tuple[int, int]) -> int:
+        """前月のシフトでその週に出勤済みの日数（月をまたぐ週以外は 0）"""
+        return prev_week_worked.get(e_id, 0) if week_key == carry_week_key else 0
+
+    def week_limit(e_id: int, week_key: tuple[int, int]) -> int | None:
+        """その週に出勤できる日数の上限（週上限の指定が無ければ None）"""
+        wlimit = emp_weekly_limit.get(e_id)
+        if wlimit is None:
+            return None
+        return max(0, wlimit - carried_days(e_id, week_key))
+
     for e_id in emp_ids:
         wlimit = emp_weekly_limit.get(e_id)
         if wlimit is not None:
@@ -305,7 +366,9 @@ def generate_schedule(
                 over = model.new_int_var(
                     0, len(week_dates), f"over_hc07_{e_id}_{week_key[0]}_{week_key[1]}"
                 )
-                model.add(sum(work[e_id, d] for d in week_dates) - wlimit <= over)
+                model.add(
+                    sum(work[e_id, d] for d in week_dates) - week_limit(e_id, week_key) <= over
+                )
                 hc07_violations.append((over, e_id, week_key, wlimit, week_dates))
 
     # HC-03: Daily requirements as upper limits with overflow to その他
@@ -419,16 +482,17 @@ def generate_schedule(
         wants_max = rw == "max" or (rw is None and is_fulltime)
 
         # 出勤できる最大（希望休・半日休・週上限を除いた分。scaled: 1日=2）
-        wlimit = emp_weekly_limit.get(e_id)
+        # 月をまたぐ週は HC-07 と同じく、前月の出勤を差し引いた残りの日数まで
         available = 0
-        for week_dates in weeks.values():
+        for week_key, week_dates in weeks.items():
             units = sorted(
                 (0 if d in emp_full_off[e_id] else emp_hc_factor[e_id].get(d, 2)
                  for d in week_dates),
                 reverse=True,
             )
-            if wlimit is not None:
-                units = units[:wlimit]
+            limit = week_limit(e_id, week_key)
+            if limit is not None:
+                units = units[:limit]
             available += sum(units)
 
         if wants_max:
@@ -667,7 +731,7 @@ def generate_schedule(
         reasons = _diagnose_infeasibility(
             emp_ids, emp_names, emp_job_types, emp_full_off, emp_half_off,
             working_dates, hard_one_jt_ids, all_job_type_ids, db,
-            daily_reqs, emp_weekly_limit,
+            daily_reqs, emp_weekly_limit, carried_days,
         )
         if reasons:
             msg = "スケジュールを生成できませんでした。以下の問題が見つかりました:\n" + "\n".join(reasons)
@@ -814,9 +878,16 @@ def generate_schedule(
         if overflow > 0:
             first = week_dates[0]
             last = week_dates[-1]
+            carried = carried_days(e_id, week_key)
+            carried_note = ""
+            if carried > 0:
+                # 前月の出勤を含めて数えた週は、週の初め（月曜）から表示する
+                first = first - timedelta(days=first.weekday())
+                carried_note = f"（前月の出勤{carried}日を含む）"
             violations.append(
                 f"{first.month}月{first.day}日〜{last.month}月{last.day}日: "
-                f"{emp_names[e_id]}の週上限{wlimit}日を{overflow}日超過しました（HC-07）"
+                f"{emp_names[e_id]}の週上限{wlimit}日を{overflow}日超過しました"
+                f"{carried_note}（HC-07）"
             )
 
     return schedule.id, assignments, violations
@@ -825,9 +896,12 @@ def generate_schedule(
 def _diagnose_infeasibility(
     emp_ids, emp_names, emp_job_types, emp_full_off, emp_half_off,
     working_dates, hard_one_jt_ids, all_job_type_ids, db,
-    daily_reqs, emp_weekly_limit,
+    daily_reqs, emp_weekly_limit, carried_days,
 ) -> list[str]:
-    """ソルバー失敗時の原因を診断し、日本語メッセージのリストを返す。"""
+    """ソルバー失敗時の原因を診断し、日本語メッセージのリストを返す。
+
+    carried_days(e_id, week_key): 前月のシフトでその週に出勤済みの日数
+    """
     from database import JobType
     from collections import defaultdict
     reasons = []
@@ -941,11 +1015,13 @@ def _diagnose_infeasibility(
             continue
         for week_key, week_dates in weeks.items():
             forced = [d for d in week_dates if d in emp_half_off[e_id]]
-            if len(forced) > wlimit:
+            carried = carried_days(e_id, week_key)
+            if len(forced) > max(0, wlimit - carried):
                 range_str = f"{forced[0].month}月{forced[0].day}日〜{forced[-1].month}月{forced[-1].day}日"
+                carried_str = f"前月の出勤が{carried}日、" if carried > 0 else ""
                 reasons.append(
                     f"{range_str}: {emp_names[e_id]}は週上限{wlimit}日に対して"
-                    f"半日休による出勤強制が{len(forced)}日あります（HC-01b × HC-07）"
+                    f"{carried_str}半日休による出勤強制が{len(forced)}日あります（HC-01b × HC-07）"
                 )
 
     # チェック7: 必要人数に対して利用可能資格者が不足している日・職種
