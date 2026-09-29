@@ -66,6 +66,8 @@ npm run dev
    - `ANTHROPIC_API_KEY`: 自然言語修正機能を使う場合
 4. Deploy → 生成された URL を `NEXT_PUBLIC_API_URL` に設定して Vercel を再デプロイ
 
+> **ヘルスチェック**: リポジトリ直下の `railway.toml` で `/api/health` をヘルスチェックに設定しています。新しい版が正常に応答するまで、稼働中の版とは入れ替わりません。設定が効いていれば、デプロイ直後の `/api/health` が `"deploy_healthcheck": true` を返します。
+
 > **注意**: Railway の無料プランでは SQLite のデータは再デプロイ時にリセットされます。本番運用では PostgreSQL 等の推奨。
 
 ## 画面構成

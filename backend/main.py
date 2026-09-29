@@ -1,11 +1,18 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text as sa_text
 from database import init_db, cleanup_old_schedules, engine, _is_sqlite
 from routers import employees, job_types, requests, requirements, schedules, nlp_modify, reports, export, holidays, staff_portal, backup_restore, kasutori
 
 app = FastAPI(title="Shift Scheduler API", version="1.0.0")
+
+# Railway sends its deploy-time healthcheck (see /railway.toml) with this Host header.
+RAILWAY_HEALTHCHECK_HOST = "healthcheck.railway.app"
+# Whether this process has received that healthcheck. Exposed by /api/health so the
+# healthcheck setting can be verified from outside, without the Railway dashboard.
+# Resets to False if the container is restarted in place (no healthcheck is sent then).
+app.state.deploy_healthcheck_seen = False
 
 # CORS: allow frontend origins (local + Vercel + FRONTEND_URL)
 allowed_origins = [
@@ -54,7 +61,11 @@ def on_startup():
 
 
 @app.get("/api/health")
-def health():
+def health(request: Request):
+    host = request.headers.get("host", "").split(":")[0].lower()
+    if host == RAILWAY_HEALTHCHECK_HOST:
+        app.state.deploy_healthcheck_seen = True
+
     db_connected = True
     try:
         with engine.connect() as conn:
@@ -65,4 +76,5 @@ def health():
         "status": "ok" if db_connected else "db_error",
         "db_connected": db_connected,
         "db_type": "sqlite" if _is_sqlite else "postgresql",
+        "deploy_healthcheck": app.state.deploy_healthcheck_seen,
     }

@@ -1,0 +1,10 @@
+# Railway (backend) のデプロイ設定。
+#
+# 新しい版が /api/health に正常応答するまで、稼働中の版と入れ替えない。
+# 起動に失敗する版はデプロイ失敗になり、それまでの版が動き続ける
+# (2026-09-29 の本番停止の再発防止)。
+#
+# 設定が効いていれば、デプロイ直後の /api/health が "deploy_healthcheck": true を返す。
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
