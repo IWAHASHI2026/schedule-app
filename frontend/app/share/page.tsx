@@ -24,18 +24,6 @@ function SharePageContent() {
   const [requestedDaysOff, setRequestedDaysOff] = useState<Record<number, Set<string>>>({});
   const [kasutori, setKasutori] = useState<KasutoriStaffMonth[]>([]);
 
-  // Hide navigation sidebar for public view
-  useEffect(() => {
-    const nav = document.querySelector("aside");
-    const main = document.querySelector("main");
-    if (nav) nav.style.display = "none";
-    if (main) main.style.marginLeft = "0";
-    return () => {
-      if (nav) nav.style.display = "";
-      if (main) main.style.marginLeft = "";
-    };
-  }, []);
-
   useEffect(() => {
     if (!month) { setLoading(false); return; }
     (async () => {
@@ -139,7 +127,7 @@ function SharePageContent() {
       <Card>
         <CardContent className="pt-3 sm:pt-6 px-2 sm:px-6">
           <div className="overflow-x-auto">
-            <table className="text-[10px] sm:text-xs border-collapse w-full">
+            <table className="shift-grid text-[10px] sm:text-xs w-full">
               <thead>
                 <tr>
                   <th className="sticky left-0 bg-card z-10 px-1 py-0.5 sm:px-2 sm:py-1 border text-left min-w-[56px] sm:min-w-[80px]">スタッフ</th>
@@ -161,7 +149,7 @@ function SharePageContent() {
               <tbody>
                 {employees.map((emp) => (
                   <tr key={emp.id}>
-                    <td className="sticky left-0 bg-card z-10 px-1 py-0.5 sm:px-2 sm:py-1 border font-medium">{emp.name}</td>
+                    <td className="sticky left-0 bg-card z-10 px-1 py-0.5 sm:px-2 sm:py-1 border font-medium whitespace-nowrap">{emp.name}</td>
                     {allDates.map((d) => {
                       const a = assignmentMap[`${emp.id}_${d}`];
                       const dow = new Date(d).getDay();
@@ -202,7 +190,7 @@ function SharePageContent() {
                 ))}
                 {jobTypes.map((jt) => (
                   <tr key={`summary-${jt.id}`} className="bg-muted/30">
-                    <td className="sticky left-0 bg-muted/30 z-10 px-1 py-0.5 sm:px-2 sm:py-1 border text-[8px] sm:text-[10px] font-medium" style={{ color: jt.color || undefined }}>
+                    <td className="sticky left-0 bg-opaque-muted-30 z-10 px-1 py-0.5 sm:px-2 sm:py-1 border text-[8px] sm:text-[10px] font-medium" style={{ color: jt.color || undefined }}>
                       {jt.name}
                     </td>
                     {allDates.map((d) => (
@@ -213,7 +201,7 @@ function SharePageContent() {
                   </tr>
                 ))}
                 <tr className="bg-muted/60 font-bold">
-                  <td className="sticky left-0 bg-muted/60 z-10 px-1 py-0.5 sm:px-2 sm:py-1 border text-[8px] sm:text-[10px]">合計</td>
+                  <td className="sticky left-0 bg-opaque-muted-60 z-10 px-1 py-0.5 sm:px-2 sm:py-1 border text-[8px] sm:text-[10px]">合計</td>
                   {allDates.map((d) => {
                     const dow = new Date(d).getDay();
                     const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
@@ -228,14 +216,16 @@ function SharePageContent() {
                 {kasutori.length > 0 && (
                   <>
                     <tr>
-                      <td className="sticky left-0 bg-amber-50 z-10 px-1 py-0.5 sm:px-2 sm:py-1 border text-[8px] sm:text-[10px] font-bold text-amber-800">
-                        カス取りスタッフ
+                      {/* 見出しは氏名列に収めると折り返すため、行全体に広げて横スクロール中も左端に留める */}
+                      <td colSpan={allDates.length + 1} className="bg-amber-50 border p-0">
+                        <span className="sticky left-0 block w-fit whitespace-nowrap px-1 py-0.5 sm:px-2 sm:py-1 text-[8px] sm:text-[10px] font-bold text-amber-800">
+                          カス取りスタッフ
+                        </span>
                       </td>
-                      <td colSpan={allDates.length} className="bg-amber-50 border" />
                     </tr>
                     {kasutori.map((ks) => (
                       <tr key={`kasutori-${ks.staff_id}`}>
-                        <td className="sticky left-0 bg-card z-10 px-1 py-0.5 sm:px-2 sm:py-1 border font-medium">{ks.name}</td>
+                        <td className="sticky left-0 bg-card z-10 px-1 py-0.5 sm:px-2 sm:py-1 border font-medium whitespace-nowrap">{ks.name}</td>
                         {allDates.map((d) => {
                           const dow = new Date(d).getDay();
                           const isNW = dow === 0 || dow === 6 || holidayDates.has(d);

@@ -55,18 +55,6 @@ export default function StaffRequestPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Hide navigation sidebar
-  useEffect(() => {
-    const nav = document.querySelector("aside");
-    const main = document.querySelector("main");
-    if (nav) nav.style.display = "none";
-    if (main) main.style.marginLeft = "0";
-    return () => {
-      if (nav) nav.style.display = "";
-      if (main) main.style.marginLeft = "";
-    };
-  }, []);
-
   useEffect(() => {
     (async () => {
       try {

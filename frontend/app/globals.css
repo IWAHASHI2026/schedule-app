@@ -34,6 +34,42 @@
   }
 }
 
+/* ---- シフト表グリッド（シフト表・共有ページ・自動生成プレビュー共通） ----
+   固定列(position: sticky)を持つ表では border-collapse: collapse を使わない。
+   collapse だと罫線がセルではなく表に属するため、横スクロール時に固定列の罫線だけが
+   流れてしまい、その隙間から下のセルが見える（iOS Safari で顕著）。
+   セル単位の罫線（右・下）＋先頭行の上罫線＋先頭列の左罫線で collapse と同じ見た目にする。 */
+.shift-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.shift-grid th,
+.shift-grid td {
+  border-width: 0 1px 1px 0;
+}
+.shift-grid thead tr:first-child > * {
+  border-top-width: 1px;
+}
+.shift-grid tr > :first-child {
+  border-left-width: 1px;
+}
+/* 右端の固定列は、固定中は左隣のセルの罫線が下に隠れるため影で補う */
+.shift-grid .sticky.right-0 {
+  box-shadow: -1px 0 0 0 hsl(var(--border));
+}
+
+/* 固定列用の不透明な背景。bg-muted/30 のような半透明色を固定列に使うと、
+   横スクロール時に下を流れるセルの文字が透けて重なって見えるため、
+   不透明な下地(card)の上に同じ色を重ねる。 */
+.bg-opaque-muted-30 {
+  background-color: hsl(var(--card));
+  background-image: linear-gradient(hsl(var(--muted) / 0.3), hsl(var(--muted) / 0.3));
+}
+.bg-opaque-muted-60 {
+  background-color: hsl(var(--card));
+  background-image: linear-gradient(hsl(var(--muted) / 0.6), hsl(var(--muted) / 0.6));
+}
+
 @media print {
   /* サイドナビゲーションを非表示 */
   nav { display: none !important; }

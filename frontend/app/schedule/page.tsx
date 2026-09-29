@@ -233,10 +233,10 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">シフト表</h1>
         {schedule && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {hasPendingChanges && (
               <Button onClick={handleSave} size="sm" variant="default" disabled={saving}>
                 <Save className="mr-2 h-4 w-4" />{saving ? "保存中..." : `保存（${pendingCount}件）`}
@@ -277,9 +277,9 @@ export default function SchedulePage() {
         </Card>
       ) : (
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="px-2 pt-3 sm:px-6 sm:pt-6">
             <div className="overflow-x-auto">
-              <table className="text-xs border-collapse w-full">
+              <table className="shift-grid text-xs w-full">
                 <thead>
                   <tr>
                     <th className="sticky left-0 bg-card z-10 px-2 py-1 border text-left min-w-[80px]">スタッフ</th>
@@ -296,13 +296,13 @@ export default function SchedulePage() {
                         </th>
                       );
                     })}
-                    <th className="px-2 py-1 border text-center min-w-[40px] bg-muted/50">合計</th>
+                    <th className="px-2 py-1 border text-center min-w-[40px] bg-muted/50 whitespace-nowrap">合計</th>
                   </tr>
                 </thead>
                 <tbody>
                   {employees.map((emp) => (
                     <tr key={emp.id}>
-                      <td className="sticky left-0 bg-card z-10 px-2 py-1 border font-medium">{emp.name}</td>
+                      <td className="sticky left-0 bg-card z-10 px-2 py-1 border font-medium whitespace-nowrap">{emp.name}</td>
                       {allDates.map((d) => {
                         const a = assignmentMap[`${emp.id}_${d}`];
                         const dow = new Date(d).getDay();
@@ -350,7 +350,7 @@ export default function SchedulePage() {
                   {/* Summary rows */}
                   {jobTypes.map((jt) => (
                     <tr key={`summary-${jt.id}`} className="bg-muted/30">
-                      <td className="sticky left-0 bg-muted/30 z-10 px-2 py-1 border text-[10px] font-medium" style={{ color: jt.color || undefined }}>
+                      <td className="sticky left-0 bg-opaque-muted-30 z-10 px-2 py-1 border text-[10px] font-medium" style={{ color: jt.color || undefined }}>
                         {jt.name}
                       </td>
                       {allDates.map((d) => (
@@ -362,7 +362,7 @@ export default function SchedulePage() {
                     </tr>
                   ))}
                   <tr className="bg-muted/60 font-bold">
-                    <td className="sticky left-0 bg-muted/60 z-10 px-2 py-1 border text-[10px]">日合計</td>
+                    <td className="sticky left-0 bg-opaque-muted-60 z-10 px-2 py-1 border text-[10px]">日合計</td>
                     {allDates.map((d) => {
                       const dow = new Date(d).getDay();
                       const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
@@ -378,14 +378,16 @@ export default function SchedulePage() {
                   {kasutori.length > 0 && (
                     <>
                       <tr>
-                        <td className="sticky left-0 bg-amber-50 z-10 px-2 py-1 border text-[10px] font-bold text-amber-800">
-                          カス取りスタッフ
+                        {/* 見出しは氏名列に収めると折り返すため、行全体に広げて横スクロール中も左端に留める */}
+                        <td colSpan={allDates.length + 2} className="bg-amber-50 border p-0">
+                          <span className="sticky left-0 block w-fit whitespace-nowrap px-2 py-1 text-[10px] font-bold text-amber-800">
+                            カス取りスタッフ
+                          </span>
                         </td>
-                        <td colSpan={allDates.length + 1} className="bg-amber-50 border" />
                       </tr>
                       {kasutori.map((ks) => (
                         <tr key={`kasutori-${ks.staff_id}`}>
-                          <td className="sticky left-0 bg-card z-10 px-2 py-1 border font-medium">{ks.name}</td>
+                          <td className="sticky left-0 bg-card z-10 px-2 py-1 border font-medium whitespace-nowrap">{ks.name}</td>
                           {allDates.map((d) => {
                             const dow = new Date(d).getDay();
                             const isNW = dow === 0 || dow === 6 || holidayDates.has(d);
@@ -428,7 +430,7 @@ export default function SchedulePage() {
             </div>
 
             {editCell && (
-              <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-card border rounded-lg shadow-lg p-4 z-50 flex gap-2 items-center">
+              <div className="fixed inset-x-2 bottom-4 z-50 mx-auto flex w-fit flex-wrap items-center justify-center gap-2 rounded-lg border bg-card p-3 shadow-lg sm:p-4">
                 <span className="text-sm mr-2">割り当て:</span>
                 {jobTypes.map((jt) => (
                   <Button key={jt.id} size="sm" variant="outline" onClick={() => handleAssign(jt.id)}

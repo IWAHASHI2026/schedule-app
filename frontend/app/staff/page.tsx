@@ -146,7 +146,7 @@ export default function StaffPage() {
           <CardTitle className="text-lg">新規スタッフ登録</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2 items-end">
+          <div className="flex flex-wrap gap-2 items-end">
             <Input
               placeholder="氏名を入力"
               value={newName}
@@ -179,7 +179,7 @@ export default function StaffPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b">
+                <tr className="border-b max-lg:whitespace-nowrap">
                   <th className="py-2 px-3 text-center w-16">順番</th>
                   <th className="py-2 px-3 text-left">氏名</th>
                   <th className="py-2 px-3 text-left">属性</th>
@@ -212,11 +212,11 @@ export default function StaffPage() {
                         </Button>
                       </div>
                     </td>
-                    <td className="py-2 px-3 font-medium">{emp.name}</td>
+                    <td className="py-2 px-3 font-medium max-lg:whitespace-nowrap">{emp.name}</td>
                     <td className="py-2 px-3">
                       <Badge
                         variant="outline"
-                        className={emp.employment_type === "dependent" ? "border-green-500 text-green-700" : "border-blue-500 text-blue-700"}
+                        className={`max-lg:whitespace-nowrap ${emp.employment_type === "dependent" ? "border-green-500 text-green-700" : "border-blue-500 text-blue-700"}`}
                       >
                         {emp.employment_type === "dependent" ? "扶養内" : "フル勤務"}
                       </Badge>
@@ -228,7 +228,7 @@ export default function StaffPage() {
                             <Badge
                               key={jt.id}
                               style={{ backgroundColor: jt.color || undefined }}
-                              className="text-white text-xs"
+                              className="text-white text-xs max-lg:whitespace-nowrap"
                             >
                               {jt.name}
                             </Badge>
@@ -267,7 +267,7 @@ export default function StaffPage() {
         <CardHeader>
           <CardTitle className="text-lg flex items-center justify-between flex-wrap gap-2">
             <span>{linkYear}年{linkMon}月シフト — 希望入力リンク管理</span>
-            <div className="flex gap-2 items-center">
+            <div className="flex flex-wrap gap-2 items-center">
               <Input
                 type="month"
                 value={linkMonth}
@@ -289,7 +289,7 @@ export default function StaffPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b">
+                <tr className="border-b max-lg:whitespace-nowrap">
                   <th className="py-2 px-3 text-left">氏名</th>
                   <th className="py-2 px-3 text-left">リンク状態</th>
                   <th className="py-2 px-3 text-right">操作</th>
@@ -298,7 +298,7 @@ export default function StaffPage() {
               <tbody>
                 {tokens.map((t) => (
                   <tr key={t.employee_id} className="border-b hover:bg-muted/50">
-                    <td className="py-2 px-3 font-medium">{t.employee_name}</td>
+                    <td className="py-2 px-3 font-medium max-lg:whitespace-nowrap">{t.employee_name}</td>
                     <td className="py-2 px-3">
                       {t.staff_token ? (
                         <Badge variant="outline" className="border-green-500 text-green-700">有効</Badge>

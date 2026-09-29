@@ -213,7 +213,7 @@ export default function RequestsPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">希望入力</h1>
 
-      <div className="flex gap-4 items-end">
+      <div className="flex flex-wrap gap-4 items-end">
         <div>
           <Label>対象月</Label>
           <Input

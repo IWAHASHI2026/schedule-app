@@ -176,7 +176,7 @@ export default function RequirementsPage() {
             <table className="text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="py-2 px-2 text-left">曜日</th>
+                  <th className="py-2 px-2 text-left max-lg:whitespace-nowrap">曜日</th>
                   {jobTypes.map((jt) => (
                     <th key={jt.id} className="py-2 px-2 text-center">
                       <span className="inline-block h-2 w-2 rounded-full mr-1" style={{ backgroundColor: jt.color || "#ccc" }} />
@@ -231,22 +231,22 @@ export default function RequirementsPage() {
             <table className="text-sm w-full">
               <thead>
                 <tr className="border-b">
-                  <th className="py-2 px-2 text-left sticky left-0 bg-card">日付</th>
-                  <th className="py-2 px-2 text-left">曜日</th>
+                  <th className="py-2 px-2 text-left sticky left-0 bg-card max-lg:whitespace-nowrap">日付</th>
+                  <th className="py-2 px-2 text-left max-lg:whitespace-nowrap">曜日</th>
                   {jobTypes.map((jt) => (
                     <th key={jt.id} className="py-2 px-2 text-center">
                       <span className="inline-block h-2 w-2 rounded-full mr-1" style={{ backgroundColor: jt.color || "#ccc" }} />
                       {jt.name}
                     </th>
                   ))}
-                  <th className="py-2 px-2 text-center">合計</th>
+                  <th className="py-2 px-2 text-center max-lg:whitespace-nowrap">合計</th>
                 </tr>
               </thead>
               <tbody>
                 {dates.map(({ date: dateStr, day, dow, isNonWorking }) => (
                   <tr
                     key={dateStr}
-                    className={`border-b ${isNonWorking ? "bg-gray-50 text-gray-400" : ""}`}
+                    className={`border-b ${isNonWorking ? "bg-gray-50 text-gray-400" : "bg-card"}`}
                   >
                     <td className="py-1 px-2 sticky left-0 bg-inherit">{day}</td>
                     <td className={`py-1 px-2 ${dow === 0 ? "text-red-500" : dow === 6 ? "text-blue-500" : ""}`}>

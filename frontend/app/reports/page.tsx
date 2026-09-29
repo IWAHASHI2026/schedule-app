@@ -41,7 +41,7 @@ export default function ReportsPage() {
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm max-lg:whitespace-nowrap">
                   <thead>
                     <tr className="border-b">
                       <th className="py-2 px-3 text-left">スタッフ</th>

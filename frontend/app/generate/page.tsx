@@ -234,7 +234,7 @@ export default function GeneratePage() {
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
-              <table className="text-xs border-collapse">
+              <table className="shift-grid text-xs">
                 <thead>
                   <tr>
                     <th className="sticky left-0 bg-card z-10 px-2 py-1 border text-left min-w-[80px]">
@@ -266,7 +266,7 @@ export default function GeneratePage() {
                         </th>
                       );
                     })}
-                    <th className="sticky right-0 bg-card z-10 px-2 py-1 border text-center min-w-[36px]">
+                    <th className="sticky right-0 bg-card z-10 px-2 py-1 border text-center min-w-[36px] whitespace-nowrap">
                       合計
                     </th>
                   </tr>
@@ -274,7 +274,7 @@ export default function GeneratePage() {
                 <tbody>
                   {employees.map((emp) => (
                     <tr key={emp.id}>
-                      <td className="sticky left-0 bg-card z-10 px-2 py-1 border font-medium">
+                      <td className="sticky left-0 bg-card z-10 px-2 py-1 border font-medium whitespace-nowrap">
                         {emp.name}
                       </td>
                       {allDates.map((d) => {
@@ -326,7 +326,7 @@ export default function GeneratePage() {
                   {/* 職種別人数 */}
                   {jobTypes.map((jt) => (
                     <tr key={`summary-${jt.id}`} className="bg-muted/30">
-                      <td className="sticky left-0 bg-muted/30 z-10 px-2 py-1 border text-[10px] font-medium" style={{ color: jt.color || undefined }}>
+                      <td className="sticky left-0 bg-opaque-muted-30 z-10 px-2 py-1 border text-[10px] font-medium" style={{ color: jt.color || undefined }}>
                         {jt.name}
                       </td>
                       {allDates.map((d) => {
@@ -337,12 +337,12 @@ export default function GeneratePage() {
                           </td>
                         );
                       })}
-                      <td className="sticky right-0 bg-muted/30 z-10 px-1 py-1 border text-center text-[10px]" />
+                      <td className="sticky right-0 bg-opaque-muted-30 z-10 px-1 py-1 border text-center text-[10px]" />
                     </tr>
                   ))}
                   {/* 日合計 */}
                   <tr className="bg-muted/60 font-bold">
-                    <td className="sticky left-0 bg-muted/60 z-10 px-2 py-1 border text-[10px]">合計</td>
+                    <td className="sticky left-0 bg-opaque-muted-60 z-10 px-2 py-1 border text-[10px]">合計</td>
                     {allDates.map((d) => {
                       const total = assignments.filter((a) => a.date === d && a.work_type !== "off").reduce((s, a) => s + a.headcount_value, 0);
                       return (
@@ -351,7 +351,7 @@ export default function GeneratePage() {
                         </td>
                       );
                     })}
-                    <td className="sticky right-0 bg-muted/60 z-10 px-1 py-1 border text-center text-[10px]" />
+                    <td className="sticky right-0 bg-opaque-muted-60 z-10 px-1 py-1 border text-center text-[10px]" />
                   </tr>
                 </tbody>
               </table>

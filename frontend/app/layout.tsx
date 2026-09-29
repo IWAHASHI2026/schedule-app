@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Navigation from "@/components/navigation";
+import AppShell from "@/components/app-shell";
 import DbStatusBanner from "@/components/db-status-banner";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -16,8 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ja">
       <body className={inter.className}>
         <DbStatusBanner />
-        <Navigation />
-        <main className="ml-56 min-h-screen p-6">{children}</main>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

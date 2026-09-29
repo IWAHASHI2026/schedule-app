@@ -111,7 +111,7 @@ export default function HolidaysPage() {
         </CardContent>
       </Card>
 
-      <div className="flex gap-4 items-end">
+      <div className="flex flex-wrap gap-4 items-end">
         <div>
           <Label>対象月</Label>
           <Input
