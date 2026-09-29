@@ -8,6 +8,7 @@ Hard constraints（違反不可）:
   HC-03 上限: 日別必要人数を上限とし、超過配置を禁止
          - 不足分は「その他」の上限に加算（オーバーフロー）
          - 不足自体はソフト（ペナルティ）
+         - 連休明け1日目だけは HC-08 のため「その他」の超過を認める
   HC-04: Only assign job types the employee is qualified for
   HC-05: No work on weekends/holidays
   HC-06 上限/半日排除: 職人・サブ職人は各営業日に最大1名、半日勤務者は割当不可
@@ -20,19 +21,22 @@ Soft-hard constraints（可能な限り守るが、不可能なら違反とし�
   HC-08:  連休明け1日目に調整休を入れない（penalty 1,000,000）
   → 違反時は violations リストに日本語メッセージとして追加
 
-Soft constraints (objective function) — 4段階の優先順位:
-  [Tier 1] フル勤務の希望日数:
-    SC-01: Requested work days (full-time "max" weight 50, dependent "max" weight 8)
-         - "max" = maximize work days (penalize non-work, soft)
-         - Numeric value = hard upper limit on total work days
-         - Full-time with no request = default to "max"
-  [Tier 2] 仕事バランス:
+Soft constraints (objective function):
+  出勤日数:
+    SC-01: 希望日数に対する不足を公平に配分 (不足が大きい人ほど重く評価)
+         - 希望日数: 「なるべく多く」・未入力のフル勤務 = 出勤可能な全日
+                     日数指定 = その日数 (ハード上限でもある)
+                     未入力の扶養内 = 10日
+         - 人が余る月に調整休を入れる順番 (重みが小さいほど先):
+             1. 扶養内 (weight 25。10日の目安までは先に減らす)
+             2. フル勤務で日数指定、および目安を下回る扶養内 (weight 200)
+             3. フル勤務で「なるべく多く」・未入力 (weight 1600。原則として減らさない)
+         - 同じ順番の中では不足の日数が均等になる
+  仕事バランス:
     SC-04: Job type balance per employee (weight 10, 全社員で統一)
-    SC-08: Cross-employee fairness per job type across all qualified employees (full-time weight 5, dependent weight 1)
+    SC-08: Cross-employee fairness per job type across all qualified employees (weight 5, 全社員で統一)
            - サブ職人のみ weight 40 (資格者3名で偏りやすいため強く均等化)
-  [Tier 3] 扶養内の希望日数:
-    SC-09: Dependent staff minimum work days target (weight 8, default 10 days)
-  [Tier 4] 扶養内の cross-employee fairness: (SC-08 の dependent weights のみ)
+           - 「その他」で扶養内を含む組み合わせのみ weight 1
   Other:
     SC-05: Prefer higher-priority job types (weight 2)
     SC-06: Prefer full-time employees over dependent (weight 3)
@@ -312,6 +316,7 @@ def generate_schedule(
     # Half-day workers contribute 1 unit (0.5), full-day workers contribute 2 units (1.0)
     violations = []
     shortage_vars = []  # Track shortages for objective penalty: (var, job_type_id)
+    sonota_extra_vars = []  # 連休明け1日目の「その他」超過枠
     for d in working_dates:
         if d not in daily_reqs:
             continue
@@ -330,8 +335,10 @@ def generate_schedule(
             # Upper limit: 必要人数を超えて配置しない
             model.add(supply <= scaled_req)
             # Shortage tracking: 不足分をトラッキング
+            # 実際の不足と一致させる。下限だけだと、架空の不足を計上して
+            # 「その他」の上限を引き上げる抜け道になる。
             shortage = model.new_int_var(0, scaled_req, f"shortage_{d}_{j}")
-            model.add(shortage >= scaled_req - supply)
+            model.add(shortage == scaled_req - supply)
             shortage_vars.append((shortage, j))
             day_overflow.append(shortage)
 
@@ -345,15 +352,20 @@ def generate_schedule(
                 if sono_ta_jt_id in emp_job_types.get(e_id, [])
             )
             # Upper limit with overflow
+            # 連休明け1日目は HC-08 で全員を出勤させるため、必要人数を超える枠を設ける。
+            cap_terms = list(day_overflow)
+            if is_non_working_day(d - timedelta(days=1), company_holidays):
+                extra = model.new_int_var(0, len(emp_ids) * 2, f"sonota_extra_{d}")
+                sonota_extra_vars.append(extra)
+                cap_terms.append(extra)
+            model.add(sono_ta_supply <= scaled_sono_ta_req + sum(cap_terms))
+            # Effective cap for shortage calculation（超過枠は不足に数えない）
             if day_overflow:
-                model.add(sono_ta_supply <= scaled_sono_ta_req + sum(day_overflow))
-                # Effective cap for shortage calculation
                 effective_cap = model.new_int_var(
                     0, scaled_sono_ta_req + len(emp_ids) * 2, f"sonota_cap_{d}"
                 )
                 model.add(effective_cap == scaled_sono_ta_req + sum(day_overflow))
             else:
-                model.add(sono_ta_supply <= scaled_sono_ta_req)
                 effective_cap = scaled_sono_ta_req
             # Shortage for その他
             sono_ta_shortage = model.new_int_var(
@@ -384,43 +396,79 @@ def generate_schedule(
 
     objective_terms = []
 
-    # SC-01: Requested work days (Tier 1: full-time weight 50, Tier 3: dependent weight 8)
-    # - "max": soft constraint to maximize work days
-    # - numeric: hard upper limit constraint
-    # - full-time with no request: default to "max"
+    # SC-01: 希望日数に対する不足を公平に配分する
+    # スタッフが増えて人が余る月は、誰かに調整休を入れる必要がある。
+    # 不足 1 単位あたりの費用を一定にすると、1人に集めても合計が変わらず特定の人に
+    # 偏るため、不足が大きい人ほど重く評価する（2乗）。
+    # 調整休を入れる順番は重みの大小で表す（小さいほど先に減らす）:
+    #   1. 扶養内（DEPENDENT_FLOOR_DAYS までは先に減らす）
+    #   2. フル勤務で日数指定、および目安を下回る扶養内
+    #   3. フル勤務で「なるべく多く」・未入力（原則として減らさない）
+    SC01_WEIGHT_DEPENDENT = 25
+    SC01_WEIGHT_FULLTIME = 200
+    SC01_WEIGHT_PROTECTED = 1600
+    # 「なるべく多く」の人は不足3日を超えたら増分を一定にする。
+    # 出勤できない事情で不足が膨らんだときに、他のペナルティを上回らないようにするため。
+    SC01_PROTECTED_STEP_CAP = 11
+    DEPENDENT_DEFAULT_TARGET = 10  # 希望未入力の扶養内の希望日数
+    DEPENDENT_FLOOR_DAYS = 10      # 扶養内の出勤日数の目安
+
     for e_id in emp_ids:
         rw = emp_requested_work.get(e_id)
         is_fulltime = emp_type[e_id] == "full_time"
-        work_day_weight = 50 if is_fulltime else 8  # Tier 1 vs Tier 3
-        if rw == "max":
-            not_work_count = model.new_int_var(0, scaled_total, f"not_work_{e_id}")
-            model.add(not_work_count == scaled_total - emp_total_work[e_id])
-            objective_terms.append(not_work_count * work_day_weight)
-        elif rw is not None:
-            # Hard upper limit (scaled by 2)
-            target = int(rw) * 2
-            model.add(emp_total_work[e_id] <= target)
-        elif is_fulltime:
-            # フル勤務でリクエストなし → デフォルトでmax扱い
-            not_work_count = model.new_int_var(0, scaled_total, f"not_work_{e_id}")
-            model.add(not_work_count == scaled_total - emp_total_work[e_id])
-            objective_terms.append(not_work_count * work_day_weight)
+        wants_max = rw == "max" or (rw is None and is_fulltime)
 
-    # SC-09: 扶養内スタッフの最低出勤日数ターゲット（Tier 3, weight 8, デフォルト10日）
-    DEPENDENT_DEFAULT_TARGET = 10
-    for e_id in emp_ids:
-        if emp_type[e_id] != "dependent":
+        # 出勤できる最大（希望休・半日休・週上限を除いた分。scaled: 1日=2）
+        wlimit = emp_weekly_limit.get(e_id)
+        available = 0
+        for week_dates in weeks.values():
+            units = sorted(
+                (0 if d in emp_full_off[e_id] else emp_hc_factor[e_id].get(d, 2)
+                 for d in week_dates),
+                reverse=True,
+            )
+            if wlimit is not None:
+                units = units[:wlimit]
+            available += sum(units)
+
+        if wants_max:
+            want = available
+        elif rw is None:
+            want = min(DEPENDENT_DEFAULT_TARGET * 2, available)
+        else:
+            # 日数指定はハード上限でもある (scaled by 2)
+            model.add(emp_total_work[e_id] <= int(rw) * 2)
+            want = min(int(rw) * 2, available)
+        if want <= 0:
             continue
-        rw = emp_requested_work.get(e_id)
-        if rw == "max":
-            continue  # 既存のSC-01で最大化される
-        # 目標日数: 数値指定があればその値、なければデフォルト10日
-        target_days = int(rw) if rw is not None else DEPENDENT_DEFAULT_TARGET
-        scaled_target = target_days * 2
-        # 目標との不足分をペナルティ（Tier 3: weight 8）
-        shortfall = model.new_int_var(0, scaled_total, f"dep_short_{e_id}")
-        model.add(shortfall >= scaled_target - emp_total_work[e_id])
-        objective_terms.append(shortfall * 8)
+
+        # 不足 1 単位(0.5日)ごとの増分。k 単位目の増分が steps[k-1]
+        if not is_fulltime:
+            cheap = max(0, want - DEPENDENT_FLOOR_DAYS * 2)  # 目安より上の分
+            steps = [SC01_WEIGHT_DEPENDENT * (2 * k - 1) for k in range(1, cheap + 1)]
+            for k in range(1, want - cheap + 1):
+                step = SC01_WEIGHT_FULLTIME * (2 * k - 1)
+                steps.append(max(step, steps[-1]) if steps else step)
+        elif wants_max:
+            steps = [
+                SC01_WEIGHT_PROTECTED * min(2 * k - 1, SC01_PROTECTED_STEP_CAP)
+                for k in range(1, want + 1)
+            ]
+        else:
+            steps = [SC01_WEIGHT_FULLTIME * (2 * k - 1) for k in range(1, want + 1)]
+
+        short = model.new_int_var(0, want, f"short_{e_id}")
+        model.add(short >= want - emp_total_work[e_id])
+        short_cost = model.new_int_var(0, sum(steps), f"short_cost_{e_id}")
+        # 増分が単調増加なので、各区間を延長した直線の最大値が費用に一致する
+        base = 0
+        prev_step = None
+        for k, step in enumerate(steps):
+            if step != prev_step:  # 増分が同じ区間は同じ直線になる
+                model.add(short_cost >= base + step * (short - k))
+            base += step
+            prev_step = step
+        objective_terms.append(short_cost)
 
     # SC-04: Job type balance per employee — pairwise
     # 全社員で weight 10 (雇用形態問わず統一)
@@ -447,7 +495,11 @@ def generate_schedule(
                 objective_terms.append(diff * balance_weight)
 
     # SC-08: Cross-employee job type fairness — per job type across all qualified employees
-    # Tier 2: full-time pairs weight 5, Tier 4: dependent pairs weight 1
+    # weight 5。雇用形態を問わず同じ重みで比べる（扶養内を含む組み合わせを軽くすると、
+    # 扶養内の人に特定の職種が集まりやすい。例: 10日中7日が lkデータ）。
+    # 「その他」だけは扶養内を含む組み合わせを weight 1 にする。「その他」の日数は
+    # 出勤日数に連動し、扶養内は出勤日数を先に減らすので、同じ強さで比べると
+    # 手紙などの割り振りがゆがむため。
     # 各職種について、その職種を担当可能な全スタッフ間で公平性制約を作成
     # （旧実装は完全一致の資格グループのみ対象だったため、1つでも資格が異なる
     #   スタッフが孤立し、特定職種に偏る問題があった）
@@ -463,12 +515,13 @@ def generate_schedule(
         if len(qualified) <= 1:
             continue
         for e1, e2 in combinations(qualified, 2):
-            # 両者がフル勤務ならTier 2、それ以外はTier 4
             both_fulltime = emp_type[e1] == "full_time" and emp_type[e2] == "full_time"
             if j == subjob_jt_id:
                 fairness_weight = SC08_SUBJOB_WEIGHT  # サブ職人は強く均等化
+            elif j == sono_ta_jt_id and not both_fulltime:
+                fairness_weight = 1
             else:
-                fairness_weight = 5 if both_fulltime else 1
+                fairness_weight = 5
             diff = model.new_int_var(0, total_working_dates, f"sc08_{e1}_{e2}_{j}")
             model.add(diff >= emp_job_counts[e1][j] - emp_job_counts[e2][j])
             model.add(diff >= emp_job_counts[e2][j] - emp_job_counts[e1][j])
@@ -522,7 +575,7 @@ def generate_schedule(
                 objective_terms.append(x[e_id, d, j] * jt_sort_order.get(j, j) * priority_weight)
 
     # SC-06: Prefer full-time employees over dependent (weight 3)
-    # 優先順位の差はウェイト階層(Tier 1-4)で主に処理済み
+    # 出勤日数の優先順位は SC-01 の重みで決まる。ここは同点のときの決め手
     for e_id in emp_ids:
         if emp_type[e_id] == "dependent":
             for d in working_dates:
@@ -544,7 +597,8 @@ def generate_schedule(
     # SC-10: 2日以上連休の翌々日への出勤誘導 (weight 100, 極力出勤)
     # 連休明け1日目 (Rule 1) は HC-08 (hard-soft, 1M penalty) で対応するため、
     # ここは Rule 2 (例: 通常週の火曜、3連休後の水曜) のみを担当する強めのソフト誘導。
-    # weight=100 で SC-01(50)/SC-04(10) を明確に上回り、shortage penalty(100)と同等。
+    # weight=100 で SC-04(10) を明確に上回り、shortage penalty(100)と同等。
+    # HC-03 の日別上限は超えないので、出勤日数 (SC-01) ではなく「どの日に出勤するか」に効く。
     SC10_WEIGHT = 100
     for d in working_dates:
         prev_d = d - timedelta(days=1)
@@ -566,9 +620,14 @@ def generate_schedule(
         priority_factor = max_sort + 1 - jt_sort_order.get(j, max_sort)
         objective_terms.append(sv * 100 * priority_factor)
 
+    # 連休明け1日目の「その他」超過枠。HC-08 を満たすのに必要な分だけ使うよう小さく課す
+    SONOTA_EXTRA_COST = 200
+    for extra in sonota_extra_vars:
+        objective_terms.append(extra * SONOTA_EXTRA_COST)
+
     # 強制生成のためソフト化したハード制約の違反には大ペナルティを付与
-    # （他のソフト制約ペナルティ ~700/unit より十分大きい値で、
-    #   可能な限り満たされるが不可能時は緩和される）
+    # （他のソフト制約ペナルティより十分大きい値で、可能な限り満たされるが
+    #   不可能時は緩和される。ソフト制約で最大の SC-01 でも 1 単位あたり 2 万未満）
     HC01B_PENALTY = 1_000_000
     HC06_PENALTY = 1_000_000
     HC04B_PENALTY = 100_000
