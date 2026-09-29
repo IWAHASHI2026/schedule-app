@@ -2,8 +2,14 @@
 
 import { useEffect, useState, useRef } from "react";
 import { getHealth } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
-export default function DbStatusBanner() {
+export default function DbStatusBanner({
+  belowMobileHeader = false,
+}: {
+  // スマホ幅の上部バー（メニューボタン）を隠さないよう、その下に表示する
+  belowMobileHeader?: boolean;
+}) {
   const [show, setShow] = useState(false);
   const failsRef = useRef(0);
 
@@ -38,7 +44,12 @@ export default function DbStatusBanner() {
   if (!show) return null;
 
   return (
-    <div className="fixed top-0 inset-x-0 z-50 bg-red-600 text-white text-center text-xs sm:text-sm py-2 px-4 shadow-md">
+    <div
+      className={cn(
+        "fixed inset-x-0 z-50 bg-red-600 text-white text-center text-xs sm:text-sm py-2 px-4 shadow-md",
+        belowMobileHeader ? "top-12 md:top-0" : "top-0"
+      )}
+    >
       ⚠️ データベースに接続できません。<strong>データは消えていません</strong>。サーバーの復旧をお待ちください（自動で再確認しています）。
     </div>
   );
