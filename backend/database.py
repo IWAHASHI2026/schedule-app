@@ -18,6 +18,12 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./shift_scheduler.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# ドライバを必ず明示する。SQLAlchemy 2.1 から postgresql:// の既定ドライバが
+# psycopg2 ではなく psycopg(v3) になり、未指定のままだと起動時に
+# "No module named 'psycopg'" で落ちる（requirements は psycopg2-binary のみ）。
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 _is_sqlite = DATABASE_URL.startswith("sqlite")
 
 # 本番環境（PORT設定あり）でSQLiteを使用している場合は警告

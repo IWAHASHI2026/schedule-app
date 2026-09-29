@@ -1,12 +1,16 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-psycopg2-binary
-pydantic
-python-dotenv
-anthropic
-ortools
-openpyxl
-reportlab
-python-multipart
-httpx
+# バージョンは必ず固定する。未固定だと再デプロイのたびに最新版が入り、
+# 互換性のない更新で本番が起動しなくなる（2026-09: SQLAlchemy 2.1 で発生）。
+# 更新するときは、ローカルで動作確認してから番号を書き換える。
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+# 2.1 は postgresql:// の既定ドライバが psycopg(v3) に変わるため 2.0 系に固定
+sqlalchemy==2.0.54
+psycopg2-binary==2.9.13
+pydantic==2.13.5
+python-dotenv==1.2.3
+anthropic==1.9.0
+ortools==9.15.6755
+openpyxl==3.1.5
+reportlab==5.0.1
+python-multipart==0.0.32
+httpx==0.28.1
