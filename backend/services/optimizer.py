@@ -213,6 +213,19 @@ def generate_schedule(
             daily_reqs[dr.date] = {}
         daily_reqs[dr.date][dr.job_type_id] = dr.required_count
 
+    # 必要人数が1件も無い営業日は入力漏れとして扱い、生成を止める。
+    # そのまま生成すると HC-04b（未設定の職種に配置しない）と HC-08（連休明けは全員出勤）が
+    # ぶつかり、連休明けなら全員出勤、それ以外の日は職人・サブ職人以外が全員休み、と
+    # 日によって結果が逆転してしまう（休業日を登録 → テンプレート適用 → 休業日を取消、で起きる）。
+    missing_days = [d for d in working_dates if d not in daily_reqs]
+    if missing_days:
+        dow_names_jp = ["月", "火", "水", "木", "金", "土", "日"]
+        days_str = "、".join(f"{d.month}月{d.day}日（{dow_names_jp[d.weekday()]}）" for d in missing_days)
+        raise ValueError(
+            f"必要人数が設定されていない営業日があります: {days_str}\n"
+            "必要人数設定の画面で入力してから、もう一度生成してください。"
+        )
+
     # ---- Build CP-SAT Model ----
     model = cp_model.CpModel()
 
