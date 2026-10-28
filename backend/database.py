@@ -505,29 +505,36 @@ def init_db():
     _migrate_add_default_work_days()
     db = SessionLocal()
     try:
-        if db.query(JobType).count() == 0:
-            seed_job_types = [
-                JobType(name="職人", color="#FF6B6B", sort_order=1),
-                JobType(name="サブ職人", color="#4DABF7", sort_order=2),
-                JobType(name="lkデータ", color="#51CF66", sort_order=3),
-                JobType(name="uv/cpデータ", color="#CC5DE8", sort_order=4),
-                JobType(name="手紙", color="#F59F00", sort_order=5),
-                JobType(name="その他", color="#FFD43B", sort_order=6),
-            ]
-            db.add_all(seed_job_types)
+        # 職種は名前で不足分だけ補う。新規DBでは上の移行処理が先に「手紙」を1件入れるため、
+        # 「件数が0なら全部入れる」方式だと残りの5職種が作られなかった
+        existing_jt_names = {jt.name for jt in db.query(JobType).all()}
+        seed_job_types = [
+            ("職人", "#FF6B6B", 1),
+            ("サブ職人", "#4DABF7", 2),
+            ("lkデータ", "#51CF66", 3),
+            ("uv/cpデータ", "#CC5DE8", 4),
+            ("手紙", "#F59F00", 5),
+            ("その他", "#FFD43B", 6),
+        ]
+        jt_added = False
+        for name, color, order in seed_job_types:
+            if name not in existing_jt_names:
+                db.add(JobType(name=name, color=color, sort_order=order))
+                jt_added = True
+        if jt_added:
             db.commit()
 
         if db.query(Employee).count() == 0:
             # name, employment_type, job_type_names（既定の希望出勤日数は _INITIAL_DEFAULT_WORK_DAYS）
             seed_data = [
                 ("部長",       "full_time", ["その他"]),
-                ("岩生亜紀子", "full_time", ["その他"]),
+                ("若生亜紀子", "full_time", ["その他"]),
                 ("大野千絵美", "full_time", ["職人", "サブ職人", "lkデータ", "uv/cpデータ", "手紙", "その他"]),
                 ("和平映美",   "full_time", ["職人", "サブ職人", "lkデータ", "uv/cpデータ", "手紙", "その他"]),
                 ("岡崎智恵子", "full_time", ["職人"]),
-                ("川上節子",   "dependent", ["lkデータ", "uv/cpデータ", "手紙", "その他"]),
+                ("川上朋子",   "dependent", ["lkデータ", "uv/cpデータ", "手紙", "その他"]),
                 ("植原ふみ代", "full_time", ["職人", "サブ職人", "lkデータ", "手紙", "その他"]),
-                ("尾崎慶子",   "dependent", ["手紙", "その他"]),
+                ("尾崎廣子",   "dependent", ["手紙", "その他"]),
                 ("酒向邦江",   "dependent", ["手紙", "その他"]),
                 ("カンサ萌",   "dependent", ["lkデータ", "uv/cpデータ", "手紙", "その他"]),
                 ("秋山智子",   "dependent", ["手紙", "その他"]),
