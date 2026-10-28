@@ -97,6 +97,11 @@ def get_holidays_for_year(year: int) -> list[tuple[date, str]]:
     return JAPANESE_HOLIDAYS.get(year, [])
 
 
+def holiday_years() -> list[int]:
+    """祝日データが登録されている年。登録の無い年は祝日が平日扱いになるため、生成前に確認する。"""
+    return sorted(JAPANESE_HOLIDAYS)
+
+
 def is_holiday(d: date) -> bool:
     holidays = get_holidays_for_year(d.year)
     return any(h[0] == d for h in holidays)
@@ -114,6 +119,12 @@ def get_company_holiday_dates(db: Session) -> frozenset[date]:
 def is_non_working_day(d: date, company_holidays: frozenset[date] = frozenset()) -> bool:
     """Saturday, Sunday, Japanese holiday, or company holiday."""
     return d.weekday() >= 5 or is_holiday(d) or d in company_holidays
+
+
+@router.get("/coverage")
+def holiday_coverage():
+    """祝日データが登録されている年の一覧（画面の注意表示用）。"""
+    return {"years": holiday_years()}
 
 
 @router.get("", response_model=list[HolidayOut])

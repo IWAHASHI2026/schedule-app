@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Wand2, RefreshCw, Check, X, AlertTriangle, Loader2 } from "lucide-react";
 import {
   getEmployees, getRequestStatus, getRequirements, getJobTypes,
-  getSchedules, generateSchedule, getAssignments, getRequests, getHolidays, nlpModify, approveNlpLog, rejectNlpLog,
+  getSchedules, generateSchedule, getAssignments, getRequests, getHolidays, getHolidayCoverage, nlpModify, approveNlpLog, rejectNlpLog,
   getJobTypeAbbr,
   type Employee, type JobType, type ShiftAssignment, type ShiftRequest, type Holiday, type NlpModifyResult,
 } from "@/lib/api";
@@ -35,8 +35,10 @@ export default function GeneratePage() {
   const [requestedDaysOff, setRequestedDaysOff] = useState<Record<number, Set<string>>>({}); // empId -> Set<date>
   const [holidayDates, setHolidayDates] = useState<Set<string>>(new Set());
   const [allRequests, setAllRequests] = useState<ShiftRequest[]>([]);
+  const [holidayYears, setHolidayYears] = useState<number[] | null>(null);  // 祝日データのある年
 
   const load = async () => {
+    getHolidayCoverage().then((c) => setHolidayYears(c.years)).catch(() => setHolidayYears(null));
     const [emps, jts, statuses, reqs, schedules, shiftRequests, holidays] = await Promise.all([
       getEmployees(),
       getJobTypes(),
@@ -177,8 +179,14 @@ export default function GeneratePage() {
               必要人数設定: {reqDaysCount}日
             </Badge>
           </div>
+          {holidayYears && !holidayYears.includes(calYear) && (
+            <p className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {calYear}年の祝日データが登録されていません（登録済み: {holidayYears[0]}〜{holidayYears[holidayYears.length - 1]}年）。
+              祝日が平日として扱われてしまうため、この月は生成できません。祝日データの追加が必要です。
+            </p>
+          )}
           <div className="flex gap-2 pt-4">
-            <Button onClick={handleGenerate} disabled={generating} size="lg">
+            <Button onClick={handleGenerate} disabled={generating || (holidayYears != null && !holidayYears.includes(calYear))} size="lg">
               {generating ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

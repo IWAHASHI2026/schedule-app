@@ -273,6 +273,8 @@ export interface Holiday {
 }
 
 export const getHolidays = (year: number) => request<Holiday[]>(`/holidays?year=${year}`);
+/** 祝日データが登録されている年。無い年はシフトを生成できない */
+export const getHolidayCoverage = () => request<{ years: number[] }>("/holidays/coverage");
 export const addCompanyHoliday = (date: string, name: string) =>
   request<Holiday>("/holidays", { method: "POST", body: JSON.stringify({ date, name }) });
 export const deleteCompanyHoliday = (date: string) =>

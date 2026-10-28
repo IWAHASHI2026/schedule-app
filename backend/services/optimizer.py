@@ -62,7 +62,7 @@ from database import (
     Employee, EmployeeJobType, ShiftRequest, RequestDetail,
     DailyRequirement, Schedule, ShiftAssignment, employee_default_work_days,
 )
-from routers.holidays import is_non_working_day, get_company_holiday_dates
+from routers.holidays import is_non_working_day, get_company_holiday_dates, holiday_years
 from services.schedule_select import select_display_schedule
 from datetime import date, timedelta
 
@@ -114,6 +114,14 @@ def generate_schedule(
     Returns: (schedule_id, assignments_list, violations_list)
     """
     year, mon = map(int, month.split("-"))
+    # 祝日データが無い年は、祝日が平日として扱われたシフトが黙って出来てしまうので止める
+    if year not in holiday_years():
+        covered = holiday_years()
+        raise ValueError(
+            f"{year}年の祝日データが登録されていません（登録済み: {covered[0]}〜{covered[-1]}年）。\n"
+            "祝日が平日として扱われてしまうため、生成を止めました。"
+            f"祝日データ（backend/routers/holidays.py）に{year}年分を追加してください。"
+        )
     days_in_month = calendar.monthrange(year, mon)[1]
     all_dates = [date(year, mon, d) for d in range(1, days_in_month + 1)]
     company_holidays = get_company_holiday_dates(db)

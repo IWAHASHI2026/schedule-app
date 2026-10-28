@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 import {
-  getHolidays, addCompanyHoliday, deleteCompanyHoliday, getSchedules,
+  getHolidays, addCompanyHoliday, deleteCompanyHoliday, getSchedules, getHolidayCoverage,
   type Holiday,
 } from "@/lib/api";
 
@@ -21,6 +21,11 @@ export default function HolidaysPage() {
   const [name, setName] = useState("臨時休業");
   const [hasSchedule, setHasSchedule] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [coverageYears, setCoverageYears] = useState<number[]>([]);  // 祝日データのある年
+
+  useEffect(() => {
+    getHolidayCoverage().then((c) => setCoverageYears(c.years)).catch(() => setCoverageYears([]));
+  }, []);
 
   const year = parseInt(month.split("-")[0]);
   const loadSeq = useRef(0);
@@ -120,6 +125,18 @@ export default function HolidaysPage() {
             onChange={(e) => { if (e.target.value) setMonth(e.target.value); }}
             className="mt-1 w-44"
           />
+          {coverageYears.length > 0 && (
+            coverageYears.includes(year) ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                祝日データ: {coverageYears[0]}〜{coverageYears[coverageYears.length - 1]}年分を登録済み
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-red-600">
+                {year}年の祝日データが未登録です（登録済み: {coverageYears[0]}〜{coverageYears[coverageYears.length - 1]}年）。
+                追加するまで、この年のシフトは生成できません。
+              </p>
+            )
+          )}
         </div>
         <div>
           <Label>休業名（追加時に使用）</Label>
