@@ -151,6 +151,14 @@ def generate_schedule(
         jt.id: jt.sort_order for jt in db.query(JT).all()
     }
 
+    # 特別扱いの職種: 「その他」は他職種の不足分の受け皿、職人・サブ職人は1日1名（HC-06）
+    from database import JobType
+    sono_ta_jt = db.query(JobType).filter(JobType.name == "その他").first()
+    sono_ta_jt_id = sono_ta_jt.id if sono_ta_jt else None
+    hard_one_jt_ids: set[int] = {
+        jt.id for jt in db.query(JobType).filter(JobType.name.in_(["職人", "サブ職人"])).all()
+    }
+
     # Requested days off per employee (with period info)
     emp_off_periods: dict[int, dict[date, set[str]]] = {}  # e_id -> date -> {"am","pm"}
     emp_requested_work: dict[int, str | None] = {}  # "1"-"23" or "max" or None
@@ -184,14 +192,23 @@ def generate_schedule(
     emp_full_off: dict[int, set[date]] = {}  # dates with both am+pm off
     emp_half_off: dict[int, dict[date, str]] = {}  # date -> which period is off ("am" or "pm")
     emp_hc_factor: dict[int, dict[date, int]] = {}  # date -> 2 (full) or 1 (half day)
+    # 職人・サブ職人しかできない人の半日休。半日勤務では職人・サブ職人に入れない（HC-06）ため
+    # 残り半分に入れる仕事が無く、「残り半分は出勤」（HC-01b）と両立しない。終日休として扱い、
+    # 違反ではなく扱いの説明として知らせる。
+    craft_only_half_days: list[tuple[int, date]] = []
 
     for e_id in emp_ids:
         emp_full_off[e_id] = set()
         emp_half_off[e_id] = {}
         emp_hc_factor[e_id] = {}
+        allowed_set = set(emp_job_types.get(e_id, []))
+        craft_only = bool(allowed_set) and allowed_set <= hard_one_jt_ids
         for d, periods in emp_off_periods[e_id].items():
             if "am" in periods and "pm" in periods:
                 emp_full_off[e_id].add(d)
+            elif craft_only:
+                emp_full_off[e_id].add(d)
+                craft_only_half_days.append((e_id, d))
             elif "am" in periods:
                 emp_half_off[e_id][d] = "am"
                 emp_hc_factor[e_id][d] = 1  # half-day work
@@ -289,13 +306,6 @@ def generate_schedule(
     # - 上限1: ハード（超過禁止）
     # - 下限1: ソフト（0名時は違反として記録）
     # - 半日勤務者の配置禁止: ハード（業務ルール）
-    from database import JobType
-    hard_one_jt_ids = set()
-    # 「その他」のjob_type_idを取得（オーバーフロー先）
-    sono_ta_jt = db.query(JobType).filter(JobType.name == "その他").first()
-    sono_ta_jt_id = sono_ta_jt.id if sono_ta_jt else None
-    for jt in db.query(JobType).filter(JobType.name.in_(["職人", "サブ職人"])).all():
-        hard_one_jt_ids.add(jt.id)
     for d in working_dates:
         for j in hard_one_jt_ids:
             if j in all_job_type_ids:
@@ -888,6 +898,14 @@ def generate_schedule(
             f"{d.month}月{d.day}日（{dow}）: "
             f"{emp_names[e_id]}を必要人数未設定の{'・'.join(jt_names)}に配置しました（HC-04b）"
         )
+    for e_id, d in craft_only_half_days:
+        if d in working_dates:
+            dow = dow_names[d.weekday()]
+            violations.append(
+                f"{d.month}月{d.day}日（{dow}）: "
+                f"{emp_names[e_id]}は職人・サブ職人のみ担当のため、半日休を終日休として扱いました"
+                f"（半日勤務では職人・サブ職人に入れないため）"
+            )
     for over, e_id, week_key, wlimit, week_dates in hc07_violations:
         overflow = solver.value(over)
         if overflow > 0:
