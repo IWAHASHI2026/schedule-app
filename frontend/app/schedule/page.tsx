@@ -6,11 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CheckCircle, Globe, Save } from "lucide-react";
 import {
   getEmployees, getJobTypes, getSchedules, getAssignments, getHolidays, getRequests,
   updateAssignments, updateScheduleStatus, getJobTypeAbbr,
   getKasutori, updateKasutoriAttendance,
+  pickDisplaySchedule, scheduleOptionLabel, scheduleStatusLabel,
   type Employee, type JobType, type Schedule, type ShiftAssignment, type Holiday,
   type KasutoriStaffMonth,
 } from "@/lib/api";
@@ -22,6 +24,7 @@ export default function SchedulePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);  // その月の全シフト（新しい順）
   const [assignments, setAssignments] = useState<ShiftAssignment[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [editCell, setEditCell] = useState<{ empId: number; date: string } | null>(null);
@@ -32,7 +35,8 @@ export default function SchedulePage() {
   // key `${staffId}_${date}` -> 新しい値 (1|0)。サーバー値に戻ったらキー削除
   const [kasutoriPending, setKasutoriPending] = useState<Record<string, number>>({});
 
-  const load = async () => {
+  // preferId: 確定・公開のあとに同じシフトを表示し続けるための指定
+  const load = async (preferId?: number) => {
     const [emps, jts, scheds, hols, shiftRequests, kas] = await Promise.all([
       getEmployees(),
       getJobTypes(),
@@ -58,14 +62,28 @@ export default function SchedulePage() {
     }
     setRequestedDaysOff(daysOffMap);
 
-    if (scheds.length > 0) {
-      setSchedule(scheds[0]);
-      const asn = await getAssignments(scheds[0].id);
+    setSchedules(scheds);
+    // 公開中 > 確定 > 最新 の順で選ぶ（共有ページ・出力・集計と同じ基準）
+    const target =
+      (preferId != null ? scheds.find((s) => s.id === preferId) : undefined) || pickDisplaySchedule(scheds);
+    if (target) {
+      setSchedule(target);
+      const asn = await getAssignments(target.id);
       setAssignments(asn);
     } else {
       setSchedule(null);
       setAssignments([]);
     }
+  };
+
+  // 同じ月の別のシフト（公開前のプレビューなど）に切り替える
+  const selectSchedule = async (id: number) => {
+    const target = schedules.find((s) => s.id === id);
+    if (!target || (schedule && target.id === schedule.id)) return;
+    if (Object.keys(pendingChanges).length > 0 && !confirm("保存していない変更があります。切り替えると失われますが、よろしいですか？")) return;
+    setPendingChanges({});
+    setSchedule(target);
+    setAssignments(await getAssignments(target.id));
   };
 
   const monthRef = useRef(month);
@@ -197,7 +215,7 @@ export default function SchedulePage() {
   const handleStatus = async (status: string) => {
     if (!schedule) return;
     await updateScheduleStatus(schedule.id, status);
-    load();
+    load(schedule.id);
   };
 
   // Summary per date per job type
@@ -250,10 +268,20 @@ export default function SchedulePage() {
               schedule.status === "published" ? "success" :
               schedule.status === "confirmed" ? "default" : "secondary"
             }>
-              {schedule.status === "published" ? "公開中" :
-               schedule.status === "confirmed" ? "確定" :
-               schedule.status === "preview" ? "プレビュー" : "下書き"}
+              {scheduleStatusLabel(schedule.status)}
             </Badge>
+            {schedules.length > 1 && (
+              <Select value={String(schedule.id)} onValueChange={(v) => selectSchedule(parseInt(v))}>
+                <SelectTrigger className="h-8 w-64 text-xs" title="同じ月の別のシフトに切り替える">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {schedules.map((s) => (
+                    <SelectItem key={s.id} value={String(s.id)}>{scheduleOptionLabel(s)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {(schedule.status === "draft" || schedule.status === "preview") && (
               <Button onClick={() => handleStatus("confirmed")} size="sm">
                 <CheckCircle className="mr-2 h-4 w-4" />確定

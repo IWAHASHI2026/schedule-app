@@ -6,6 +6,7 @@ from database import (
 )
 from models import ReportOut, EmployeeReportOut
 from routers.holidays import is_non_working_day, get_company_holiday_dates
+from services.schedule_select import select_display_schedule
 from datetime import date
 import calendar
 
@@ -63,13 +64,8 @@ def _generate_comment(
 
 @router.get("", response_model=ReportOut)
 def get_report(month: str, db: Session = Depends(get_db)):
-    # Find latest schedule for the month
-    schedule = (
-        db.query(Schedule)
-        .filter(Schedule.target_month == month)
-        .order_by(Schedule.id.desc())
-        .first()
-    )
+    # 公開中 > 確定 > 最新 の順で、その月のシフトを選ぶ（画面・出力と同じ基準）
+    schedule = select_display_schedule(db, month)
     if not schedule:
         return ReportOut(month=month)
 

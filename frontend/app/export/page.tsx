@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { FileSpreadsheet, FileText, Download, Link2, Check, Copy, MessageSquare, Save } from "lucide-react";
-import { getExportUrl, getSchedules, updateScheduleComment, type Schedule } from "@/lib/api";
+import { getExportUrl, getSchedules, updateScheduleComment, pickDisplaySchedule, type Schedule } from "@/lib/api";
 
 export default function ExportPage() {
   const today = new Date();
@@ -28,12 +28,8 @@ export default function ExportPage() {
       try {
         const schedules = await getSchedules(month);
         if (cancelled) return;
-        // 公開済み > 確定 > 最新 の優先で選ぶ (share/page.tsx と同じロジック)
-        const target =
-          schedules.find((s) => s.status === "published") ||
-          schedules.find((s) => s.status === "confirmed") ||
-          schedules[0] ||
-          null;
+        // 公開中 > 確定 > 最新 の順で選ぶ（出力 API・集計・シフト表と同じ基準）
+        const target = pickDisplaySchedule(schedules);
         setSchedule(target);
         setComment(target?.comment || "");
       } catch {

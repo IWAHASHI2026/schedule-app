@@ -13,6 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from sqlalchemy.orm import Session
 from database import Schedule, ShiftAssignment, Employee, JobType, ShiftRequest
 from routers.holidays import is_non_working_day, get_company_holiday_dates
+from services.schedule_select import select_display_schedule
 from routers.kasutori import resolve_kasutori_month
 import calendar
 import os
@@ -29,12 +30,8 @@ JOB_TYPE_COLORS = {
 
 
 def _get_schedule_data(db: Session, month: str):
-    schedule = (
-        db.query(Schedule)
-        .filter(Schedule.target_month == month)
-        .order_by(Schedule.id.desc())
-        .first()
-    )
+    # 公開中 > 確定 > 最新 の順で、その月のシフトを選ぶ（画面・集計と同じ基準）
+    schedule = select_display_schedule(db, month)
     if not schedule:
         raise ValueError("No schedule found for the specified month")
 

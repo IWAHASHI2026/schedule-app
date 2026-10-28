@@ -62,6 +62,7 @@ from database import (
     DailyRequirement, Schedule, ShiftAssignment,
 )
 from routers.holidays import is_non_working_day, get_company_holiday_dates
+from services.schedule_select import select_display_schedule
 from datetime import date, timedelta
 
 logger = logging.getLogger(__name__)
@@ -79,18 +80,10 @@ def _prev_month_week_work_days(db: Session, month_start: date) -> dict[int, int]
         return {}
 
     prev_month = f"{week_start.year:04d}-{week_start.month:02d}"
-    prev_schedules = (
-        db.query(Schedule)
-        .filter(Schedule.target_month == prev_month)
-        .order_by(Schedule.id.desc())
-        .all()
-    )
-    if not prev_schedules:
+    # 同じ月に複数のシフトがあるので、画面・出力と同じ基準（公開中 > 確定 > 最新）で選ぶ
+    prev_schedule = select_display_schedule(db, prev_month)
+    if prev_schedule is None:
         return {}
-    # 同じ月に複数のシフトがあるので、公開済みの最新を優先し、無ければ最新のものを使う
-    prev_schedule = next(
-        (s for s in prev_schedules if s.status == "published"), prev_schedules[0]
-    )
 
     prev_assignments = (
         db.query(ShiftAssignment)

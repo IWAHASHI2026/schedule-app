@@ -9,7 +9,7 @@ import {
   BarChart3, Download, AlertTriangle, CalendarOff,
 } from "lucide-react";
 import {
-  getEmployees, getRequestStatus, getRequirements, getSchedules,
+  getEmployees, getRequestStatus, getRequirements, getSchedules, pickDisplaySchedule,
   type Schedule,
 } from "@/lib/api";
 
@@ -36,7 +36,7 @@ export default function DashboardPage() {
       setEmpCount(emps.filter((e) => !e.retired_at).length);
       setReqStatus({ total: statuses.length, done: statuses.filter((s) => s.has_request).length });
       setReqDays(new Set(reqs.map((r) => r.date)).size);
-      setSchedule(schedules.length > 0 ? schedules[0] : null);
+      setSchedule(pickDisplaySchedule(schedules));
 
       const newAlerts: string[] = [];
       const unsubmitted = statuses.filter((s) => !s.has_request);

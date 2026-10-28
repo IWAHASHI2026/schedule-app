@@ -165,6 +165,29 @@ export interface ShiftAssignment {
 
 export const getSchedules = (month?: string) =>
   request<Schedule[]>(`/schedules${month ? `?month=${month}` : ""}`);
+
+/** その月の「表示するシフト」を選ぶ。公開中 > 確定 > 最新 の順（バックエンドの集計・出力と同じ基準） */
+export const pickDisplaySchedule = (schedules: Schedule[]): Schedule | null =>
+  schedules.find((s) => s.status === "published") ||
+  schedules.find((s) => s.status === "confirmed") ||
+  schedules[0] ||
+  null;
+
+export const scheduleStatusLabel = (status: string): string =>
+  status === "published" ? "公開中" : status === "confirmed" ? "確定" : status === "preview" ? "プレビュー" : "下書き";
+
+/** 選択肢用の短い表示。例: "#100 公開中 (10/23 17:06 生成)" */
+export const scheduleOptionLabel = (s: Schedule): string => {
+  let when = "";
+  if (s.generated_at) {
+    // サーバーは UTC で保存している（末尾に Z が無い）ので、付けてから端末の時刻に直す
+    const d = new Date(s.generated_at.endsWith("Z") ? s.generated_at : `${s.generated_at}Z`);
+    if (!isNaN(d.getTime())) {
+      when = ` (${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} 生成)`;
+    }
+  }
+  return `#${s.id} ${scheduleStatusLabel(s.status)}${when}`;
+};
 export const generateSchedule = (month: string) =>
   request<{ schedule_id: number; assignment_count: number; violations: string[] }>(
     "/schedules/generate",
