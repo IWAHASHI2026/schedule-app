@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import (
     get_db, Schedule, ShiftAssignment, NlpModificationLog, Employee, JobType,
+    ShiftRequest, RequestDetail,
 )
 from models import NlpModifyRequest, NlpModifyResponse, ShiftAssignmentOut, NlpLogOut
 from services.nlp_service import parse_modification
@@ -83,6 +84,8 @@ def nlp_modify(schedule_id: int, body: NlpModifyRequest, db: Session = Depends(g
     # Split parsed instructions into pin vs adjust
     pin_changes = [p for p in parsed if p.get("type") == "pin"]
     adjust_changes = [p for p in parsed if p.get("type") == "adjust"]
+    # 「増やす / 減らす」は今のシフトの日数が基準なので、現在の日数を添えて渡す
+    _attach_current_counts(adjust_changes, assignments, employees, jt_map)
 
     # If there are only pin changes, apply them directly without re-optimization
     if pin_changes and not adjust_changes:
@@ -148,6 +151,27 @@ def nlp_modify(schedule_id: int, body: NlpModifyRequest, db: Session = Depends(g
         "changes": changes,
         "violations": violations,
     }
+
+
+def _attach_current_counts(
+    adjust_changes: list[dict],
+    assignments: list[ShiftAssignment],
+    employees: list[Employee],
+    jt_map: dict[int, str],
+) -> None:
+    """adjust 指示に、現在のシフトでの (スタッフ, 職種) の日数を "current" として付ける。"""
+    emp_name_to_id = {emp.name: emp.id for emp in employees}
+    jt_name_to_id = {name: id_ for id_, name in jt_map.items()}
+    for c in adjust_changes:
+        emp_id = emp_name_to_id.get(c.get("employee_name", ""))
+        jt_id = jt_name_to_id.get(c.get("job_type", ""))
+        if emp_id is None or jt_id is None:
+            continue
+        c["current"] = sum(
+            1 for a in assignments
+            if a.employee_id == emp_id and a.job_type_id == jt_id
+            and a.work_type not in ("off", "requested_off", "adjusted_off")
+        )
 
 
 def _apply_pin_changes(
@@ -239,6 +263,19 @@ def _apply_pins_to_assignments(
     for a in assignments:
         assign_map[(a.employee_id, a.date.isoformat())] = a
 
+    # 半日休の希望がある日は、仕事を入れても半日勤務のまま（終日勤務にしない）
+    months = {a.date.strftime("%Y-%m") for a in assignments}
+    half_off: dict[tuple[int, str], str] = {}
+    if months:
+        rows = (
+            db.query(ShiftRequest.employee_id, RequestDetail.date, RequestDetail.period)
+            .join(RequestDetail, RequestDetail.shift_request_id == ShiftRequest.id)
+            .filter(ShiftRequest.target_month.in_(months), RequestDetail.period.in_(["am", "pm"]))
+            .all()
+        )
+        for emp_id, d, period in rows:
+            half_off[(emp_id, d.isoformat())] = period
+
     for pin in pin_changes:
         emp_id = emp_name_to_id.get(pin.get("employee_name", ""))
         date_str = pin.get("date", "")
@@ -259,8 +296,16 @@ def _apply_pins_to_assignments(
             jt_id = jt_name_to_id.get(new_jt_name)
             if jt_id is not None:
                 target.job_type_id = jt_id
-                target.work_type = "full"
-                target.headcount_value = 1.0
+                period = half_off.get((emp_id, date_str))
+                if period == "am":
+                    target.work_type = "afternoon_half"  # 午前休 → 午後勤務
+                    target.headcount_value = 0.5
+                elif period == "pm":
+                    target.work_type = "morning_half"
+                    target.headcount_value = 0.5
+                else:
+                    target.work_type = "full"
+                    target.headcount_value = 1.0
 
     db.flush()
 

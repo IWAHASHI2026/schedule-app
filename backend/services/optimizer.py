@@ -1115,10 +1115,14 @@ def _apply_extra_constraint(
     jt_count = model.new_int_var(0, len(working_dates), f"nlp_jc_{target_emp}_{target_jt}")
     model.add(jt_count == sum(x[target_emp, d, target_jt] for d in working_dates))
 
-    if action == "increase" and amount:
-        # Current approximate count + amount
-        model.add(jt_count >= amount)
-    elif action == "decrease" and amount:
-        model.add(jt_count <= max(0, amount))
+    # 「増やす / 減らす」は、修正前のシフトでの日数（current。nlp_modify が付ける）からの増減。
+    # 数量が無ければ 1 日とみなす。以前は amount をそのまま下限 / 上限にしていたため、
+    # 「2日増やして」が「2日以上にする」の意味になっていた。
+    current = int(constraint.get("current") or 0)
+    step = int(amount) if amount else 1
+    if action == "increase":
+        model.add(jt_count >= min(len(working_dates), current + step))
+    elif action == "decrease":
+        model.add(jt_count <= max(0, current - step))
     elif action == "set" and amount is not None:
-        model.add(jt_count == amount)
+        model.add(jt_count == int(amount))
