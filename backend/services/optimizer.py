@@ -52,6 +52,7 @@ Soft constraints (objective function):
              0日にしないよう強くペナルティ
     SC-12: 手紙の週次分散 (週2日目=weight 50, 週3日以上=weight 100,000)
            - 各スタッフ週1日・多くて週2日に。特定人への集中を防ぎ分散
+           - 月をまたぐ週は、前月のシフトでその週に手紙に入った日数も数える
     Shortage penalty: Priority-weighted (higher priority = higher penalty)
 """
 
@@ -70,10 +71,11 @@ logger = logging.getLogger(__name__)
 import calendar
 
 
-def _prev_month_week_work_days(db: Session, month_start: date) -> dict[int, int]:
-    """月初の週が前月から続いている場合に、前月のシフトでその週に出勤した日数を返す。
+def _prev_month_week_assignments(db: Session, month_start: date) -> dict[int, dict[date, int]]:
+    """月初の週が前月から続いている場合に、前月のシフトでその週に出勤した日と職種を返す。
 
-    Returns: e_id -> 出勤日数。半日勤務も1日として数える（HC-07 と同じ数え方）。
+    Returns: e_id -> {date: job_type_id}。半日勤務も1日として数える（HC-07 と同じ数え方）。
+    週の出勤上限（HC-07）と手紙の週上限（SC-12）の両方で使う。
     月初が月曜の場合と、前月のシフトが無い場合は空。
     """
     week_start = month_start - timedelta(days=month_start.weekday())  # その週の月曜
@@ -95,12 +97,12 @@ def _prev_month_week_work_days(db: Session, month_start: date) -> dict[int, int]
         )
         .all()
     )
-    worked_dates: dict[int, set[date]] = {}
+    worked: dict[int, dict[date, int]] = {}
     for a in prev_assignments:
         if a.job_type_id is None or a.work_type in ("off", "requested_off", "adjusted_off"):
             continue
-        worked_dates.setdefault(a.employee_id, set()).add(a.date)
-    return {e_id: len(dates) for e_id, dates in worked_dates.items()}
+        worked.setdefault(a.employee_id, {})[a.date] = a.job_type_id
+    return worked
 
 
 def generate_schedule(
@@ -378,9 +380,10 @@ def generate_schedule(
     # 月をまたぐ週は、前月のシフトでその週に出勤した日数を上限から差し引く。
     # 対象になるのは月初の週だけ。月末側は翌月の生成時に同じ処理で吸収される。
     carry_week_key = tuple(start_date.isocalendar()[:2])
-    prev_week_worked = (
-        _prev_month_week_work_days(db, start_date) if carry_week_key in weeks else {}
+    prev_week_jobs = (
+        _prev_month_week_assignments(db, start_date) if carry_week_key in weeks else {}
     )
+    prev_week_worked = {e_id: len(jobs) for e_id, jobs in prev_week_jobs.items()}
 
     def carried_days(e_id: int, week_key: tuple[int, int]) -> int:
         """前月のシフトでその週に出勤済みの日数（月をまたぐ週以外は 0）"""
@@ -656,15 +659,21 @@ def generate_schedule(
     TEGAMI_WEEK_SOFT = 50        # 週2日目の軽い抑制 (週1日を推奨)
     TEGAMI_WEEK_CAP = 100_000    # 週3日以上を強く禁止 (実質ハード)
     if tegami_jt_id is not None:
+        # 月をまたぐ週は、前月のシフトでその週に手紙に入った日数も数える（週の出勤上限 HC-07 と同じ考え方）
+        prev_week_tegami = {
+            e_id: sum(1 for j in jobs.values() if j == tegami_jt_id)
+            for e_id, jobs in prev_week_jobs.items()
+        }
         for e_id in emp_ids:
             if tegami_jt_id not in emp_job_types.get(e_id, []):
                 continue
             for week_key, week_dates in weeks.items():
-                tegami_count = sum(x[e_id, d, tegami_jt_id] for d in week_dates)
-                over1 = model.new_int_var(0, len(week_dates), f"tegami_over1_{e_id}_{week_key}")
+                carried = prev_week_tegami.get(e_id, 0) if week_key == carry_week_key else 0
+                tegami_count = sum(x[e_id, d, tegami_jt_id] for d in week_dates) + carried
+                over1 = model.new_int_var(0, len(week_dates) + carried, f"tegami_over1_{e_id}_{week_key}")
                 model.add(over1 >= tegami_count - 1)
                 objective_terms.append(over1 * TEGAMI_WEEK_SOFT)
-                over2 = model.new_int_var(0, len(week_dates), f"tegami_over2_{e_id}_{week_key}")
+                over2 = model.new_int_var(0, len(week_dates) + carried, f"tegami_over2_{e_id}_{week_key}")
                 model.add(over2 >= tegami_count - 2)
                 objective_terms.append(over2 * TEGAMI_WEEK_CAP)
 
