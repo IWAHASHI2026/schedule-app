@@ -40,7 +40,7 @@ export default function BackupPage() {
     const file = fileRef.current?.files?.[0];
     if (!file) return;
 
-    if (!confirm("現在のデータをすべて上書きします。よろしいですか？")) return;
+    if (!confirm("バックアップの内容で現在のデータを置き換えます（スタッフ・希望・必要人数・休業日・カス取り・生成済みシフト）。よろしいですか？")) return;
 
     setLoading(true);
     setStatus(null);
@@ -53,9 +53,13 @@ export default function BackupPage() {
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.detail || "復元に失敗しました");
+      const schedulesPart =
+        result.restored?.schedules == null
+          ? "シフト: 旧形式のため変更なし"
+          : `シフト: ${result.restored.schedules}件`;
       setStatus({
         type: "success",
-        message: `データを復元しました（スタッフ: ${result.restored?.employees || 0}名、希望: ${result.restored?.shift_requests || 0}件、必要人数: ${result.restored?.daily_requirements || 0}件）`,
+        message: `データを復元しました（スタッフ: ${result.restored?.employees || 0}名、希望: ${result.restored?.shift_requests || 0}件、必要人数: ${result.restored?.daily_requirements || 0}件、${schedulesPart}）`,
       });
       if (fileRef.current) fileRef.current.value = "";
     } catch (e: unknown) {
@@ -73,10 +77,10 @@ export default function BackupPage() {
         <div className="flex items-start gap-2">
           <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
           <div>
-            <p className="font-medium text-yellow-800">重要: デプロイ前にバックアップを取得してください</p>
+            <p className="font-medium text-yellow-800">定期的にバックアップを取得してください</p>
             <p className="text-sm text-yellow-700 mt-1">
-              SQLiteを使用している場合、デプロイ時にすべてのデータがリセットされます。
-              デプロイ前にバックアップを取得し、デプロイ後に復元してください。
+              本番のデータベース（PostgreSQL）は更新しても消えませんが、万一の障害や別のサーバーへの移行に備えて、
+              月に一度はバックアップをダウンロードしておくことをおすすめします。
             </p>
           </div>
         </div>
@@ -105,7 +109,8 @@ export default function BackupPage() {
               バックアップ
             </CardTitle>
             <CardDescription>
-              スタッフ、希望入力、必要人数など全データをJSONファイルとしてダウンロードします。
+              スタッフ、希望入力、必要人数、休業日、カス取りスタッフ、生成済みシフト（状態・コメント・割当）の
+              全データをJSONファイルとしてダウンロードします。
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -123,7 +128,8 @@ export default function BackupPage() {
               データ復元
             </CardTitle>
             <CardDescription>
-              バックアップファイルからデータを復元します。現在のデータはすべて上書きされます。
+              バックアップファイルの内容で現在のデータを置き換えます。
+              古い形式（シフトを含まない）のバックアップでは、今あるシフトはそのまま残ります。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
