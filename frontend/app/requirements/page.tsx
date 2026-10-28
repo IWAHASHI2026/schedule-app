@@ -111,6 +111,10 @@ export default function RequirementsPage() {
 
   const dowNames = ["日", "月", "火", "水", "木", "金", "土"];
 
+  // 職人・サブ職人は「毎営業日1名ずつ」の絶対ルールで、人数は変えられない（入力しても計算では使われない）
+  const isFixedOne = (jt: JobType) => jt.name === "職人" || jt.name === "サブ職人";
+  const fixedOneIds = new Set(jobTypes.filter(isFixedOne).map((jt) => jt.id));
+
   const setValue = (dateStr: string, jtId: number, val: string) => {
     const num = val === "" ? 0 : parseFloat(val);
     setValues((prev) => ({ ...prev, [`${dateStr}_${jtId}`]: num }));
@@ -120,11 +124,18 @@ export default function RequirementsPage() {
     setSaving(true);
     try {
       const items = Object.entries(values)
-        .filter(([, v]) => v > 0)
+        .filter(([key, v]) => v > 0 && !fixedOneIds.has(parseInt(key.split("_")[1])))
         .map(([key, v]) => {
           const [dateStr, jtId] = key.split("_");
           return { date: dateStr, job_type_id: parseInt(jtId), required_count: v };
         });
+      // 職人・サブ職人は全営業日に1名で保存する
+      for (const d of dates) {
+        if (d.isNonWorking) continue;
+        for (const jtId of fixedOneIds) {
+          items.push({ date: d.date, job_type_id: jtId, required_count: 1 });
+        }
+      }
       await upsertRequirements(items);
       load();
     } finally {
@@ -137,18 +148,26 @@ export default function RequirementsPage() {
     for (const [key, val] of Object.entries(templateValues)) {
       if (val <= 0) continue;
       const [dowStr, jtIdStr] = key.split("_");
+      if (fixedOneIds.has(parseInt(jtIdStr))) continue;
       const dow = parseInt(dowStr);
       // Convert JS getDay() style (1=Mon..5=Fri) to Python weekday() style (0=Mon..4=Fri)
       const pyDow = dow - 1;
       if (!weekdayReqs[pyDow]) weekdayReqs[pyDow] = [];
       weekdayReqs[pyDow].push({ job_type_id: parseInt(jtIdStr), required_count: val });
     }
+    // 職人・サブ職人は毎営業日1名
+    for (const pyDow of [0, 1, 2, 3, 4]) {
+      if (!weekdayReqs[pyDow]) weekdayReqs[pyDow] = [];
+      for (const jtId of fixedOneIds) {
+        weekdayReqs[pyDow].push({ job_type_id: jtId, required_count: 1 });
+      }
+    }
     await applyTemplate({ month, weekday_requirements: weekdayReqs });
     load();
   };
 
   const getRowTotal = (dateStr: string) => {
-    return jobTypes.reduce((sum, jt) => sum + (values[`${dateStr}_${jt.id}`] || 0), 0);
+    return jobTypes.reduce((sum, jt) => sum + (isFixedOne(jt) ? 1 : values[`${dateStr}_${jt.id}`] || 0), 0);
   };
 
   return (
@@ -191,19 +210,23 @@ export default function RequirementsPage() {
                     <td className="py-1 px-2 font-medium">{dowNames[dow]}</td>
                     {jobTypes.map((jt) => (
                       <td key={jt.id} className="py-1 px-2">
-                        <Input
-                          type="number"
-                          min={0}
-                          step={1}
-                          className="w-20 h-8 text-center text-sm"
-                          value={templateValues[`${dow}_${jt.id}`] || ""}
-                          onChange={(e) =>
-                            setTemplateValues((prev) => ({
-                              ...prev,
-                              [`${dow}_${jt.id}`]: parseFloat(e.target.value) || 0,
-                            }))
-                          }
-                        />
+                        {isFixedOne(jt) ? (
+                          <Input type="number" value={1} disabled className="w-20 h-8 text-center text-sm" title="毎営業日1名（固定）" />
+                        ) : (
+                          <Input
+                            type="number"
+                            min={0}
+                            step={1}
+                            className="w-20 h-8 text-center text-sm"
+                            value={templateValues[`${dow}_${jt.id}`] || ""}
+                            onChange={(e) =>
+                              setTemplateValues((prev) => ({
+                                ...prev,
+                                [`${dow}_${jt.id}`]: parseFloat(e.target.value) || 0,
+                              }))
+                            }
+                          />
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -215,6 +238,9 @@ export default function RequirementsPage() {
             <Copy className="mr-2 h-4 w-4" />
             テンプレートを全営業日に適用
           </Button>
+          <p className="mt-2 text-xs text-muted-foreground">
+            職人・サブ職人は毎営業日1名ずつ配置する決まりのため、人数は変更できません。
+          </p>
         </CardContent>
       </Card>
 
@@ -256,6 +282,8 @@ export default function RequirementsPage() {
                       <td key={jt.id} className="py-1 px-2">
                         {isNonWorking ? (
                           <span className="text-gray-300">-</span>
+                        ) : isFixedOne(jt) ? (
+                          <Input type="number" value={1} disabled className="w-20 h-8 text-center text-sm" title="毎営業日1名（固定）" />
                         ) : (
                           <Input
                             type="number"

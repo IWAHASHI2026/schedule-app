@@ -853,6 +853,8 @@ def generate_schedule(
         if d not in daily_reqs:
             continue
         for j, req_count in daily_reqs[d].items():
+            if j in hard_one_jt_ids:
+                continue  # 職人・サブ職人は常に1名（HC-06）。配置できない日は HC-06 の違反として表示する
             actual = sum(
                 emp_hc_factor[e_id].get(d, 2) / 2
                 for e_id in emp_ids
