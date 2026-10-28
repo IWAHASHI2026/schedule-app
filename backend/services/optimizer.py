@@ -64,45 +64,11 @@ from database import (
     DailyRequirement, Schedule, ShiftAssignment, employee_default_work_days,
 )
 from routers.holidays import is_non_working_day, get_company_holiday_dates, holiday_years
-from services.schedule_select import select_display_schedule
+from services.schedule_select import prev_month_week_assignments
 from datetime import date, timedelta
 
 logger = logging.getLogger(__name__)
 import calendar
-
-
-def _prev_month_week_assignments(db: Session, month_start: date) -> dict[int, dict[date, int]]:
-    """月初の週が前月から続いている場合に、前月のシフトでその週に出勤した日と職種を返す。
-
-    Returns: e_id -> {date: job_type_id}。半日勤務も1日として数える（HC-07 と同じ数え方）。
-    週の出勤上限（HC-07）と手紙の週上限（SC-12）の両方で使う。
-    月初が月曜の場合と、前月のシフトが無い場合は空。
-    """
-    week_start = month_start - timedelta(days=month_start.weekday())  # その週の月曜
-    if week_start == month_start:
-        return {}
-
-    prev_month = f"{week_start.year:04d}-{week_start.month:02d}"
-    # 同じ月に複数のシフトがあるので、画面・出力と同じ基準（公開中 > 確定 > 最新）で選ぶ
-    prev_schedule = select_display_schedule(db, prev_month)
-    if prev_schedule is None:
-        return {}
-
-    prev_assignments = (
-        db.query(ShiftAssignment)
-        .filter(
-            ShiftAssignment.schedule_id == prev_schedule.id,
-            ShiftAssignment.date >= week_start,
-            ShiftAssignment.date < month_start,
-        )
-        .all()
-    )
-    worked: dict[int, dict[date, int]] = {}
-    for a in prev_assignments:
-        if a.job_type_id is None or a.work_type in ("off", "requested_off", "adjusted_off"):
-            continue
-        worked.setdefault(a.employee_id, {})[a.date] = a.job_type_id
-    return worked
 
 
 def generate_schedule(
@@ -381,7 +347,7 @@ def generate_schedule(
     # 対象になるのは月初の週だけ。月末側は翌月の生成時に同じ処理で吸収される。
     carry_week_key = tuple(start_date.isocalendar()[:2])
     prev_week_jobs = (
-        _prev_month_week_assignments(db, start_date) if carry_week_key in weeks else {}
+        prev_month_week_assignments(db, start_date) if carry_week_key in weeks else {}
     )
     prev_week_worked = {e_id: len(jobs) for e_id, jobs in prev_week_jobs.items()}
 

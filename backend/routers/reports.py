@@ -6,11 +6,38 @@ from database import (
 )
 from models import ReportOut, EmployeeReportOut
 from routers.holidays import is_non_working_day, get_company_holiday_dates
-from services.schedule_select import select_display_schedule
+from services.schedule_select import select_display_schedule, prev_month_week_assignments
 from datetime import date
+from collections import defaultdict
 import calendar
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
+
+
+def _available_days(
+    working_dates: list[date],
+    full_off: set[date],
+    half_off: set[date],
+    weekly_limit: int | None,
+    carried_days: int,
+    carry_week_key,
+) -> float:
+    """出勤できる最大日数。希望休・半日休（0.5日）・週上限・前月からの持ち越しを考慮する。
+    生成側（optimizer の SC-01）と同じ数え方。「調整休」= この日数 − 実際の出勤日数。"""
+    weeks: dict[tuple, list[date]] = defaultdict(list)
+    for d in working_dates:
+        weeks[d.isocalendar()[:2]].append(d)
+    total = 0.0
+    for week_key, days in weeks.items():
+        units = sorted(
+            (0.0 if d in full_off else (0.5 if d in half_off else 1.0) for d in days),
+            reverse=True,
+        )
+        if weekly_limit is not None:
+            limit = max(0, weekly_limit - (carried_days if week_key == carry_week_key else 0))
+            units = units[:limit]
+        total += sum(units)
+    return total
 
 
 def _generate_comment(
@@ -21,6 +48,7 @@ def _generate_comment(
     num_requested_off_days: int,
     total_working_dates: int,
     is_default: bool = False,
+    available_days: float | None = None,
 ) -> str:
     """スタッフごとの希望充足コメントを生成する。"""
     parts: list[str] = []
@@ -31,8 +59,12 @@ def _generate_comment(
             parts.append(f"全{total_working_dates}営業日出勤")
         else:
             gap = total_working_dates - total_work
-            # 希望休（営業日分）を差し引いた真の調整休を計算
-            adjusted_gap = gap - num_requested_off_days
+            # 調整休 = 出勤できた最大日数 − 実際の出勤日数
+            # （希望休だけでなく週上限・半日休・前月からの持ち越しも除いた日数）
+            if available_days is not None:
+                adjusted_gap = available_days - total_work
+            else:
+                adjusted_gap = gap - num_requested_off_days
             tw = int(total_work) if total_work == int(total_work) else total_work
             if adjusted_gap > 0:
                 ag_s = int(adjusted_gap) if adjusted_gap == int(adjusted_gap) else adjusted_gap
@@ -93,6 +125,13 @@ def get_report(month: str, db: Session = Depends(get_db)):
     all_dates = [date(year, mon, d) for d in range(1, days_in_month + 1)]
     company_holidays = get_company_holiday_dates(db)
     total_working_dates = sum(1 for d in all_dates if not is_non_working_day(d, company_holidays))
+    working_dates = [d for d in all_dates if not is_non_working_day(d, company_holidays)]
+    # 月初の週が前月から続く場合の、前月の出勤日数（週上限の計算で差し引く）
+    first_day = date(year, mon, 1)
+    carried_jobs = prev_month_week_assignments(db, first_day)
+    carried_days = {e_id: len(jobs) for e_id, jobs in carried_jobs.items()}
+    carry_week_key = first_day.isocalendar()[:2]
+    craft_names = {"職人", "サブ職人"}
 
     emp_reports = []
 
@@ -126,15 +165,29 @@ def get_report(month: str, db: Session = Depends(get_db)):
         # Count requested off days on working days only (distinct dates)
         # 祝日・土日の希望休は営業日数に影響しないためカウントしない
         num_off_days = 0
+        full_off: set[date] = set()
+        half_off: set[date] = set()
         if req:
             details = db.query(RequestDetail).filter(
                 RequestDetail.shift_request_id == req.id
             ).all()
             num_off_days = len(set(d.date for d in details if not is_non_working_day(d.date, company_holidays)))
+            periods: dict[date, set[str]] = defaultdict(set)
+            for d in details:
+                periods[d.date].update({"am", "pm"} if (d.period or "all_day") == "all_day" else {d.period})
+            for d, p in periods.items():
+                (full_off if len(p) == 2 else half_off).add(d)
+        # 職人・サブ職人しかできない人の半日休は終日休として扱われる（生成側と同じ）
+        if emp.job_types and {ejt.job_type.name for ejt in emp.job_types} <= craft_names:
+            full_off |= half_off
+            half_off = set()
+        available = _available_days(
+            working_dates, full_off, half_off, wl, carried_days.get(emp.id, 0), carry_week_key,
+        )
 
         comment = _generate_comment(
             total_work, total_off, rw, wl,
-            num_off_days, total_working_dates, is_default,
+            num_off_days, total_working_dates, is_default, available,
         )
 
         emp_reports.append(EmployeeReportOut(
