@@ -42,7 +42,6 @@ Soft constraints (objective function):
            - サブ職人のみ weight 40 (資格者3名で偏りやすいため強く均等化)
            - 「その他」で扶養内を含む組み合わせのみ weight 1
   Other:
-    SC-05: Prefer higher-priority job types (weight 2)
     SC-06: Prefer full-time employees over dependent (weight 3)
     SC-07: Avoid same job type on consecutive working days (weight 5)
     SC-10: 2日以上連休の翌々日への出勤誘導 (weight 100, 極力出勤)
@@ -643,12 +642,10 @@ def generate_schedule(
                 model.add(over2 >= tegami_count - 2)
                 objective_terms.append(over2 * TEGAMI_WEEK_CAP)
 
-    # SC-05: Priority cost - prefer lower sort_order (1=職人, 2=サブ, 3=lkデータ, 4=uv/cpデータ, 5=手紙, 6=その他)
-    priority_weight = 2
-    for e_id in emp_ids:
-        for d in working_dates:
-            for j in all_job_type_ids:
-                objective_terms.append(x[e_id, d, j] * jt_sort_order.get(j, j) * priority_weight)
+    # （旧 SC-05「重要度の高い仕事を優先」は撤去。1人1日1仕事で各仕事の人数は必要人数で決まるため
+    #   割り振りには効かず、実際には「仕事に入れるより休ませるほうをわずかに好む」方向にしか
+    #   働いていなかった。仕事の優先順位は、人手が足りないときの不足ペナルティ（職種の優先度で重み付け）
+    #   が担う。2026-10）
 
     # SC-06: Prefer full-time employees over dependent (weight 3)
     # 出勤日数の優先順位は SC-01 の重みで決まる。ここは同点のときの決め手
