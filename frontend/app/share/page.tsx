@@ -53,10 +53,9 @@ function SharePageContent() {
         }
         setRequestedDaysOff(daysOffMap);
 
-        // Prefer published > confirmed > any latest
-        const target = scheds.find((s) => s.status === "published")
-          || scheds.find((s) => s.status === "confirmed")
-          || scheds[0];
+        // スタッフ向けの共有ページは「公開中」のシフトだけを見せる
+        // （公開前のプレビューや確定前のものは、共有リンクを持っていても見えない）
+        const target = scheds.find((s) => s.status === "published") || null;
         if (target) {
           setSchedule(target);
           setAssignments(await getAssignments(target.id));
