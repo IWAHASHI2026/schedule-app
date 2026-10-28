@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import (
     get_db, Schedule, ShiftAssignment, Employee, ShiftRequest,
-    RequestDetail, JobType,
+    RequestDetail, JobType, employee_default_work_days,
 )
 from models import ReportOut, EmployeeReportOut
 from routers.holidays import is_non_working_day, get_company_holiday_dates
@@ -20,6 +20,7 @@ def _generate_comment(
     weekly_work_day_limit: int | None,
     num_requested_off_days: int,
     total_working_dates: int,
+    is_default: bool = False,
 ) -> str:
     """スタッフごとの希望充足コメントを生成する。"""
     parts: list[str] = []
@@ -50,6 +51,8 @@ def _generate_comment(
     else:
         tw = int(total_work) if total_work == int(total_work) else total_work
         parts.append(f"{tw}日出勤（希望未設定）")
+    if is_default:
+        parts.append("希望未入力のため既定値で計算")
 
     # 週間上限
     if weekly_work_day_limit is not None:
@@ -115,6 +118,10 @@ def get_report(month: str, db: Session = Depends(get_db)):
         )
         rw = str(req.requested_work_days) if req and req.requested_work_days is not None else None
         wl = req.weekly_work_day_limit if req else None
+        # 希望が未入力なら、生成と同じ既定値を使って表示する
+        is_default = req is None
+        if is_default:
+            rw = employee_default_work_days(emp)
 
         # Count requested off days on working days only (distinct dates)
         # 祝日・土日の希望休は営業日数に影響しないためカウントしない
@@ -127,7 +134,7 @@ def get_report(month: str, db: Session = Depends(get_db)):
 
         comment = _generate_comment(
             total_work, total_off, rw, wl,
-            num_off_days, total_working_dates,
+            num_off_days, total_working_dates, is_default,
         )
 
         emp_reports.append(EmployeeReportOut(

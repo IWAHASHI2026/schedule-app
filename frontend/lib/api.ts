@@ -27,7 +27,12 @@ export interface Employee {
   sort_order: number;
   job_types: JobType[];
   retired_at: string | null;  // 退職日。null なら在籍中
+  default_work_days: string | null;  // 希望出勤日数の既定値（設定値）
+  effective_default_work_days: string;  // 実際に使われる既定値（"max" または日数）
 }
+
+export const workDaysLabel = (v: string | null | undefined): string =>
+  !v ? "" : v === "max" ? "なるべく多く" : `${v}日以内`;
 
 /** 在籍中のスタッフだけを返す */
 export const activeEmployees = (employees: Employee[]) => employees.filter((e) => !e.retired_at);
@@ -46,10 +51,12 @@ export const updateEmployeeJobTypes = (id: number, job_type_ids: number[]) =>
     method: "PUT",
     body: JSON.stringify({ job_type_ids }),
   });
-export const updateEmployeeFull = (id: number, name: string, employment_type: string, job_type_ids: number[]) =>
+export const updateEmployeeFull = (
+  id: number, name: string, employment_type: string, job_type_ids: number[], default_work_days: string | null,
+) =>
   request<Employee>(`/employees/${id}/full`, {
     method: "PUT",
-    body: JSON.stringify({ name, employment_type, job_type_ids }),
+    body: JSON.stringify({ name, employment_type, job_type_ids, default_work_days }),
   });
 export const reorderEmployees = (employee_ids: number[]) =>
   request<Employee[]>("/employees/reorder", {
@@ -277,6 +284,7 @@ export interface StaffPortalInfo {
   employee_name: string;
   employment_type: string;
   target_month: string;
+  default_work_days: string;  // 希望入力の初期値（未入力ならこの値で計算される）
   existing_request: ShiftRequest | null;
 }
 

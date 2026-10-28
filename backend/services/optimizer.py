@@ -26,9 +26,10 @@ Soft-hard constraints（可能な限り守るが、不可能なら違反とし�
 Soft constraints (objective function):
   出勤日数:
     SC-01: 希望日数に対する不足を公平に配分 (不足が大きい人ほど重く評価)
-         - 希望日数: 「なるべく多く」・未入力のフル勤務 = 出勤可能な全日
+         - 希望日数: 「なるべく多く」 = 出勤可能な全日
                      日数指定 = その日数 (ハード上限でもある)
-                     未入力の扶養内 = 10日
+                     未入力 = スタッフ情報の既定値で入力したものとして扱う
+                              (既定値が未設定なら、フル勤務は「なるべく多く」、扶養内は 12 日)
          - 人が余る月に調整休を入れる順番 (重みが小さいほど先):
              1. 扶養内 (weight 25)
              2. フル勤務で日数指定 (weight 200)
@@ -59,7 +60,7 @@ from ortools.sat.python import cp_model
 from sqlalchemy.orm import Session
 from database import (
     Employee, EmployeeJobType, ShiftRequest, RequestDetail,
-    DailyRequirement, Schedule, ShiftAssignment,
+    DailyRequirement, Schedule, ShiftAssignment, employee_default_work_days,
 )
 from routers.holidays import is_non_working_day, get_company_holiday_dates
 from services.schedule_select import select_display_schedule
@@ -131,6 +132,8 @@ def generate_schedule(
     emp_ids = [e.id for e in employees]
     emp_names = {e.id: e.name for e in employees}
     emp_type = {e.id: e.employment_type for e in employees}
+    # 希望が未入力のときに使う既定の希望出勤日数（希望入力画面の初期値と同じ）
+    emp_default_work: dict[int, str] = {e.id: employee_default_work_days(e) for e in employees}
 
     # Employee -> allowed job type ids
     emp_job_types: dict[int, list[int]] = {}
@@ -184,8 +187,9 @@ def generate_schedule(
             emp_requested_work[e_id] = str(req.requested_work_days) if req.requested_work_days is not None else None
             emp_weekly_limit[e_id] = req.weekly_work_day_limit
         else:
+            # 未入力は、既定値で入力したものとして扱う（画面の初期値と計算を一致させる）
             emp_off_periods[e_id] = {}
-            emp_requested_work[e_id] = None
+            emp_requested_work[e_id] = emp_default_work[e_id]
             emp_weekly_limit[e_id] = None
 
     # Derive full-day off set and half-day headcount factor
@@ -495,7 +499,7 @@ def generate_schedule(
     # 「なるべく多く」の人は不足3日を超えたら増分を一定にする。
     # 出勤できない事情で不足が膨らんだときに、他のペナルティを上回らないようにするため。
     SC01_PROTECTED_STEP_CAP = 11
-    DEPENDENT_DEFAULT_TARGET = 10  # 希望未入力の扶養内の希望日数
+    DEPENDENT_DEFAULT_TARGET = 12  # 既定値が無い扶養内の希望日数（通常は emp_default_work で埋まる）
     # 扶養内の出勤日数の目安。0 は目安なし（扶養内を先に減らし続ける）。
     # 日数を入れると、その日数までは先に減らし、下回る分はフル勤務の日数指定と
     # 同じ重みで分け合う（出勤日数がそろう代わりに、フル勤務にも調整休が入る）。

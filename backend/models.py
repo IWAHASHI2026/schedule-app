@@ -25,6 +25,8 @@ class EmployeeOut(BaseModel):
     sort_order: int = 0
     job_types: list[JobTypeOut] = []
     retired_at: Optional[date] = None  # 退職日。None なら在籍中
+    default_work_days: Optional[str] = None  # 希望出勤日数の既定値（設定値。None なら雇用形態の既定）
+    effective_default_work_days: str = "max"  # 実際に使われる既定値（"max" または日数）
 
 class EmployeeRetireUpdate(BaseModel):
     retired: bool
@@ -36,6 +38,7 @@ class EmployeeFullUpdate(BaseModel):
     name: str
     employment_type: str = "full_time"
     job_type_ids: list[int] = []
+    default_work_days: Optional[str] = None  # "max" / 日数 / None（雇用形態の既定）
 
 class EmployeeReorder(BaseModel):
     employee_ids: list[int]
@@ -189,6 +192,7 @@ class StaffPortalInfo(BaseModel):
     employee_name: str
     employment_type: str
     target_month: str
+    default_work_days: str = "max"  # 希望入力画面の初期値（未入力ならこの値で計算される）
     existing_request: Optional[ShiftRequestOut] = None
 
 class StaffRequestSubmit(BaseModel):

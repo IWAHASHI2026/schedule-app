@@ -73,12 +73,22 @@ class Employee(Base):
     # 退職日。設定されたスタッフはシフト生成・希望入力の対象から外れるが、
     # 過去のシフトには残る（削除と違って記録が消えない）
     retired_at = Column(Date, nullable=True)
+    # 希望出勤日数の既定値（"max" または日数）。希望入力画面の初期値になり、
+    # 希望が未入力のまま生成したときもこの値で計算する。None なら雇用形態の既定
+    default_work_days = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     job_types = relationship("EmployeeJobType", back_populates="employee", cascade="all, delete-orphan")
     shift_requests = relationship("ShiftRequest", back_populates="employee", cascade="all, delete-orphan")
     shift_assignments = relationship("ShiftAssignment", back_populates="employee", cascade="all, delete-orphan")
+
+
+def employee_default_work_days(emp: "Employee") -> str:
+    """希望出勤日数の既定値。未設定ならフル勤務は「なるべく多く」、扶養内は 12 日。"""
+    if emp.default_work_days:
+        return emp.default_work_days
+    return "max" if (emp.employment_type or "full_time") == "full_time" else "12"
 
 
 class JobType(Base):
@@ -424,6 +434,34 @@ def _migrate_rename_uvc_and_add_tegami():
         pass
 
 
+# default_work_days 列を追加したときに、それまで画面側に固定で書かれていた既定値を
+# 一度だけ書き込む（名前が一致するスタッフだけ。列が既にあれば何もしない）
+_INITIAL_DEFAULT_WORK_DAYS = {
+    "部長": "max", "若生亜紀子": "max", "大野千絵美": "16", "和平映美": "max",
+    "岡崎智恵子": "16", "川上朋子": "12", "植原ふみ代": "16", "尾崎廣子": "12",
+    "酒向邦江": "12", "カンサ萌": "12", "秋山智子": "12", "石原圭子": "16",
+    "工藤友里": "max", "近藤美佐子": "max", "竹下久美子": "12", "飛塚由希": "max",
+}
+
+
+def _migrate_add_default_work_days():
+    """Add default_work_days column to employees if missing, then seed it once."""
+    try:
+        columns = _get_existing_columns("employees")
+        if columns and "default_work_days" not in columns:
+            with engine.begin() as conn:
+                conn.execute(sa_text(
+                    "ALTER TABLE employees ADD COLUMN default_work_days TEXT"
+                ))
+                for name, value in _INITIAL_DEFAULT_WORK_DAYS.items():
+                    conn.execute(sa_text(
+                        "UPDATE employees SET default_work_days = :v "
+                        "WHERE name = :n AND default_work_days IS NULL"
+                    ), {"v": value, "n": name})
+    except Exception:
+        pass
+
+
 def _migrate_add_retired_at():
     """Add retired_at column to employees if missing."""
     try:
@@ -464,6 +502,7 @@ def init_db():
     _migrate_add_job_type_sort_order()
     _migrate_add_schedule_comment()
     _migrate_add_retired_at()
+    _migrate_add_default_work_days()
     db = SessionLocal()
     try:
         if db.query(JobType).count() == 0:
@@ -479,7 +518,7 @@ def init_db():
             db.commit()
 
         if db.query(Employee).count() == 0:
-            # name, employment_type, job_type_names
+            # name, employment_type, job_type_names（既定の希望出勤日数は _INITIAL_DEFAULT_WORK_DAYS）
             seed_data = [
                 ("部長",       "full_time", ["その他"]),
                 ("岩生亜紀子", "full_time", ["その他"]),
@@ -500,7 +539,8 @@ def init_db():
             ]
             jt_map = {jt.name: jt.id for jt in db.query(JobType).all()}
             for idx, (name, emp_type, jt_names) in enumerate(seed_data):
-                emp = Employee(name=name, employment_type=emp_type, sort_order=idx)
+                emp = Employee(name=name, employment_type=emp_type, sort_order=idx,
+                               default_work_days=_INITIAL_DEFAULT_WORK_DAYS.get(name))
                 db.add(emp)
                 db.flush()
                 for jt_name in jt_names:

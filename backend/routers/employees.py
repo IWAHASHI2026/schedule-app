@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from database import get_db, Employee, EmployeeJobType, JobType, ShiftAssignment
+from database import get_db, Employee, EmployeeJobType, JobType, ShiftAssignment, employee_default_work_days
 from models import (
     EmployeeCreate, EmployeeUpdate, EmployeeOut, EmployeeJobTypesUpdate, EmployeeFullUpdate,
     EmployeeReorder, EmployeeRetireUpdate, EmployeeTokenOut, JobTypeOut,
@@ -23,6 +23,8 @@ def _employee_to_out(emp: Employee) -> EmployeeOut:
             for ejt in sorted(emp.job_types, key=lambda ejt: ejt.job_type.sort_order)
         ],
         retired_at=emp.retired_at,
+        default_work_days=emp.default_work_days,
+        effective_default_work_days=employee_default_work_days(emp),
     )
 
 
@@ -113,6 +115,9 @@ def update_employee_full(
 
     emp.name = body.name
     emp.employment_type = body.employment_type
+    # 既定の希望出勤日数（空・"__none__" は未設定 = 雇用形態の既定）
+    value = (body.default_work_days or "").strip()
+    emp.default_work_days = value if value and value != "__none__" else None
 
     # Delete existing job types
     db.query(EmployeeJobType).filter(EmployeeJobType.employee_id == employee_id).delete()

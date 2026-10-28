@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from database import get_db, Employee, ShiftRequest
+from database import get_db, Employee, ShiftRequest, employee_default_work_days
 from models import StaffPortalInfo, StaffRequestSubmit, ShiftRequestOut
 from routers.requests import upsert_shift_request, _request_to_out
 
@@ -32,6 +32,7 @@ def get_staff_portal_info(token: str, month: str, db: Session = Depends(get_db))
         employee_name=emp.name,
         employment_type=emp.employment_type or "full_time",
         target_month=month,
+        default_work_days=employee_default_work_days(emp),
         existing_request=existing_request,
     )
 

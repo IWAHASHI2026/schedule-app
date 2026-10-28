@@ -51,30 +51,10 @@ export default function RequestsPage() {
 
   useEffect(() => { load(); }, [month]);
 
-  // デフォルト希望出勤日数（従業員名 → 値）
-  const defaultWorkDaysMap: Record<string, string> = {
-    "部長": "max",
-    "若生亜紀子": "max",
-    "大野千絵美": "16",
-    "和平映美": "max",
-    "岡崎智恵子": "16",
-    "川上朋子": "12",
-    "植原ふみ代": "16",
-    "尾崎廣子": "12",
-    "酒向邦江": "12",
-    "カンサ萌": "12",
-    "秋山智子": "12",
-    "石原圭子": "16",
-    "工藤友里": "max",
-    "近藤美佐子": "max",
-    "竹下久美子": "12",
-    "飛塚由希": "max",
-  };
-
+  // 既定の希望出勤日数はスタッフ情報（スタッフ管理画面で設定）から取る
   const getDefaultWorkDays = (empId: string): string => {
     const emp = employees.find((e) => e.id.toString() === empId);
-    if (!emp) return "";
-    return defaultWorkDaysMap[emp.name] ?? "";
+    return emp?.effective_default_work_days ?? "";
   };
 
   const loadEmployeeRequest = async (empId: string) => {

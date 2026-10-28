@@ -14,7 +14,7 @@ import { QRCodeSVG } from "qrcode.react";
 import {
   getEmployees, createEmployee, updateEmployee, deleteEmployee, setEmployeeRetired,
   updateEmployeeFull, reorderEmployees, getJobTypes,
-  getEmployeeTokens, generateToken, revokeToken,
+  getEmployeeTokens, generateToken, revokeToken, workDaysLabel,
   type Employee, type JobType, type EmployeeToken,
 } from "@/lib/api";
 
@@ -27,6 +27,7 @@ export default function StaffPage() {
   const [editName, setEditName] = useState("");
   const [editJobTypes, setEditJobTypes] = useState<number[]>([]);
   const [editEmploymentType, setEditEmploymentType] = useState("full_time");
+  const [editDefaultWorkDays, setEditDefaultWorkDays] = useState("__none__");  // 希望出勤日数の既定値
   const [dialogOpen, setDialogOpen] = useState(false);
   const [tokens, setTokens] = useState<EmployeeToken[]>([]);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
@@ -96,13 +97,17 @@ export default function StaffPage() {
     setEditName(emp.name);
     setEditEmploymentType(emp.employment_type || "full_time");
     setEditJobTypes(emp.job_types.map((jt) => jt.id));
+    setEditDefaultWorkDays(emp.default_work_days || "__none__");
     setDialogOpen(true);
   };
 
   const handleSaveEdit = async () => {
     if (editingId === null) return;
     try {
-      await updateEmployeeFull(editingId, editName, editEmploymentType, editJobTypes);
+      await updateEmployeeFull(
+        editingId, editName, editEmploymentType, editJobTypes,
+        editDefaultWorkDays === "__none__" ? null : editDefaultWorkDays,
+      );
       setDialogOpen(false);
       setEditingId(null);
       await load();
@@ -211,6 +216,7 @@ export default function StaffPage() {
                   <th className="py-2 px-3 text-center w-16">順番</th>
                   <th className="py-2 px-3 text-left">氏名</th>
                   <th className="py-2 px-3 text-left">属性</th>
+                  <th className="py-2 px-3 text-left">希望日数の既定</th>
                   <th className="py-2 px-3 text-left">担当可能な仕事種類</th>
                   <th className="py-2 px-3 text-right">操作</th>
                 </tr>
@@ -249,6 +255,15 @@ export default function StaffPage() {
                         {emp.employment_type === "dependent" ? "扶養内" : "フル勤務"}
                       </Badge>
                     </td>
+                    <td className="py-2 px-3 max-lg:whitespace-nowrap">
+                      {emp.default_work_days ? (
+                        workDaysLabel(emp.default_work_days)
+                      ) : (
+                        <span className="text-muted-foreground" title="未設定のため属性の既定値">
+                          {workDaysLabel(emp.effective_default_work_days)}（既定）
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2 px-3">
                       <div className="flex flex-wrap gap-1">
                         {emp.job_types.length > 0 ? (
@@ -280,7 +295,7 @@ export default function StaffPage() {
                 ))}
                 {activeEmployees.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                    <td colSpan={6} className="py-8 text-center text-muted-foreground">
                       スタッフが登録されていません
                     </td>
                   </tr>
@@ -475,6 +490,26 @@ export default function StaffPage() {
                   <SelectItem value="dependent">扶養内</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label>希望出勤日数の既定値</Label>
+              <Select value={editDefaultWorkDays} onValueChange={setEditDefaultWorkDays}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">
+                    未設定（{editEmploymentType === "dependent" ? "12日以内" : "なるべく多く"}）
+                  </SelectItem>
+                  <SelectItem value="max">なるべく多く</SelectItem>
+                  {Array.from({ length: 23 }, (_, i) => 23 - i).map((n) => (
+                    <SelectItem key={n} value={String(n)}>{n}日以内</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                希望入力画面の初期値になります。希望が未入力のまま生成したときも、この値で計算します。
+              </p>
             </div>
             <div>
               <Label>担当可能な仕事種類</Label>
