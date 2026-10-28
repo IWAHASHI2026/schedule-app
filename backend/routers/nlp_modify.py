@@ -24,7 +24,11 @@ def nlp_modify(schedule_id: int, body: NlpModifyRequest, db: Session = Depends(g
         .filter(ShiftAssignment.schedule_id == schedule_id)
         .all()
     )
-    employees = db.query(Employee).all()
+    present = {a.employee_id for a in assignments}
+    employees = [
+        e for e in db.query(Employee).order_by(Employee.sort_order).all()
+        if e.retired_at is None or e.id in present
+    ]
     job_types = db.query(JobType).all()
     jt_map = {jt.id: jt.name for jt in job_types}
 

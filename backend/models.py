@@ -24,6 +24,10 @@ class EmployeeOut(BaseModel):
     employment_type: str = "full_time"
     sort_order: int = 0
     job_types: list[JobTypeOut] = []
+    retired_at: Optional[date] = None  # 退職日。None なら在籍中
+
+class EmployeeRetireUpdate(BaseModel):
+    retired: bool
 
 class EmployeeJobTypesUpdate(BaseModel):
     job_type_ids: list[int]

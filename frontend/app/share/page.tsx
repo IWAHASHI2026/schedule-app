@@ -103,6 +103,10 @@ function SharePageContent() {
   for (const a of assignments) {
     assignmentMap[`${a.employee_id}_${a.date}`] = a;
   }
+  // 在籍者と、このシフトに載っている退職者
+  const visibleEmployees = employees.filter(
+    (e) => !e.retired_at || assignments.some((a) => a.employee_id === e.id)
+  );
 
   const getSummary = (dateStr: string, jtId: number) =>
     assignments.filter((a) => a.date === dateStr && a.job_type_id === jtId).reduce((s, a) => s + a.headcount_value, 0);
@@ -147,7 +151,7 @@ function SharePageContent() {
                 </tr>
               </thead>
               <tbody>
-                {employees.map((emp) => (
+                {visibleEmployees.map((emp) => (
                   <tr key={emp.id}>
                     <td className="sticky left-0 bg-card z-10 px-1 py-0.5 sm:px-2 sm:py-1 border font-medium whitespace-nowrap">{emp.name}</td>
                     {allDates.map((d) => {

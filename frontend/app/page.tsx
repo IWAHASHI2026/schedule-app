@@ -33,7 +33,7 @@ export default function DashboardPage() {
         getSchedules(nextMonth),
       ]);
 
-      setEmpCount(emps.length);
+      setEmpCount(emps.filter((e) => !e.retired_at).length);
       setReqStatus({ total: statuses.length, done: statuses.filter((s) => s.has_request).length });
       setReqDays(new Set(reqs.map((r) => r.date)).size);
       setSchedule(schedules.length > 0 ? schedules[0] : null);

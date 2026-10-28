@@ -38,7 +38,6 @@ def _get_schedule_data(db: Session, month: str):
     if not schedule:
         raise ValueError("No schedule found for the specified month")
 
-    employees = db.query(Employee).order_by(Employee.sort_order).all()
     job_types = db.query(JobType).order_by(JobType.sort_order).all()
     jt_map = {jt.id: jt.name for jt in job_types}
 
@@ -48,6 +47,12 @@ def _get_schedule_data(db: Session, month: str):
         .order_by(ShiftAssignment.employee_id, ShiftAssignment.date)
         .all()
     )
+    # 在籍者と、このシフトに載っている退職者を出力する
+    present = {a.employee_id for a in assignments}
+    employees = [
+        e for e in db.query(Employee).order_by(Employee.sort_order).all()
+        if e.retired_at is None or e.id in present
+    ]
 
     year, mon = map(int, month.split("-"))
     days_in_month = calendar.monthrange(year, mon)[1]

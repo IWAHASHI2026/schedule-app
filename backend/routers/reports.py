@@ -73,7 +73,6 @@ def get_report(month: str, db: Session = Depends(get_db)):
     if not schedule:
         return ReportOut(month=month)
 
-    employees = db.query(Employee).order_by(Employee.sort_order).all()
     job_types = db.query(JobType).order_by(JobType.sort_order).all()
     jt_map = {jt.id: jt.name for jt in job_types}
 
@@ -82,6 +81,12 @@ def get_report(month: str, db: Session = Depends(get_db)):
         .filter(ShiftAssignment.schedule_id == schedule.id)
         .all()
     )
+    # 在籍者と、このシフトに載っている退職者を表示する
+    present = {a.employee_id for a in assignments}
+    employees = [
+        e for e in db.query(Employee).order_by(Employee.sort_order).all()
+        if e.retired_at is None or e.id in present
+    ]
 
     # Count total working dates in the month
     year, mon = map(int, month.split("-"))

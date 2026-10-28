@@ -85,6 +85,10 @@ export default function SchedulePage() {
   for (const a of assignments) {
     assignmentMap[`${a.employee_id}_${a.date}`] = a;
   }
+  // 在籍者と、このシフトに載っている退職者
+  const visibleEmployees = employees.filter(
+    (e) => !e.retired_at || assignments.some((a) => a.employee_id === e.id)
+  );
 
   const handleCellClick = (empId: number, dateStr: string) => {
     const dow = new Date(dateStr).getDay();
@@ -300,7 +304,7 @@ export default function SchedulePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {employees.map((emp) => (
+                  {visibleEmployees.map((emp) => (
                     <tr key={emp.id}>
                       <td className="sticky left-0 bg-card z-10 px-2 py-1 border font-medium whitespace-nowrap">{emp.name}</td>
                       {allDates.map((d) => {

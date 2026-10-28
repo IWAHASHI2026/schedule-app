@@ -9,10 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, ArrowUp, ArrowDown, Link2, QrCode, Copy, LinkIcon, Unlink } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowUp, ArrowDown, Link2, QrCode, Copy, LinkIcon, Unlink, UserMinus, UserCheck } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
-  getEmployees, createEmployee, updateEmployee, deleteEmployee,
+  getEmployees, createEmployee, updateEmployee, deleteEmployee, setEmployeeRetired,
   updateEmployeeFull, reorderEmployees, getJobTypes,
   getEmployeeTokens, generateToken, revokeToken,
   type Employee, type JobType, type EmployeeToken,
@@ -57,10 +57,38 @@ export default function StaffPage() {
     load();
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("このスタッフを削除しますか？")) return;
-    await deleteEmployee(id);
-    load();
+  // 在籍中と退職済みを分けて扱う。退職者は過去のシフトに残したまま、生成・希望入力の対象から外れる
+  const activeEmployees = employees.filter((e) => !e.retired_at);
+  const retiredEmployees = employees.filter((e) => e.retired_at);
+
+  const handleDelete = async (emp: Employee) => {
+    if (!confirm(`${emp.name} を削除しますか？\n過去のシフトに載ったことがあるスタッフは削除できません（退職のままにしてください）。`)) return;
+    try {
+      await deleteEmployee(emp.id);
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "削除に失敗しました。");
+    }
+  };
+
+  const handleRetire = async (emp: Employee) => {
+    if (!confirm(`${emp.name} を退職にしますか？\nシフト生成と希望入力の対象から外れます。過去のシフトはそのまま残ります。`)) return;
+    try {
+      await setEmployeeRetired(emp.id, true);
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "更新に失敗しました。");
+    }
+  };
+
+  const handleUnretire = async (emp: Employee) => {
+    if (!confirm(`${emp.name} を在籍に戻しますか？`)) return;
+    try {
+      await setEmployeeRetired(emp.id, false);
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "更新に失敗しました。");
+    }
   };
 
   const openEdit = (emp: Employee) => {
@@ -126,10 +154,10 @@ export default function StaffPage() {
 
   const handleMove = async (index: number, direction: "up" | "down") => {
     const newIndex = direction === "up" ? index - 1 : index + 1;
-    if (newIndex < 0 || newIndex >= employees.length) return;
-    const reordered = [...employees];
+    if (newIndex < 0 || newIndex >= activeEmployees.length) return;
+    const reordered = [...activeEmployees];
     [reordered[index], reordered[newIndex]] = [reordered[newIndex], reordered[index]];
-    setEmployees(reordered);
+    setEmployees([...reordered, ...retiredEmployees]);
     try {
       await reorderEmployees(reordered.map((e) => e.id));
     } catch {
@@ -173,7 +201,7 @@ export default function StaffPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">スタッフ一覧（{employees.length}名）</CardTitle>
+          <CardTitle className="text-lg">スタッフ一覧（在籍 {activeEmployees.length}名）</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -188,7 +216,7 @@ export default function StaffPage() {
                 </tr>
               </thead>
               <tbody>
-                {employees.map((emp, idx) => (
+                {activeEmployees.map((emp, idx) => (
                   <tr key={emp.id} className="border-b hover:bg-muted/50">
                     <td className="py-2 px-3">
                       <div className="flex items-center justify-center gap-0.5">
@@ -205,7 +233,7 @@ export default function StaffPage() {
                           variant="ghost"
                           size="sm"
                           className="h-6 w-6 p-0"
-                          disabled={idx === employees.length - 1}
+                          disabled={idx === activeEmployees.length - 1}
                           onClick={() => handleMove(idx, "down")}
                         >
                           <ArrowDown className="h-3.5 w-3.5" />
@@ -240,17 +268,17 @@ export default function StaffPage() {
                     </td>
                     <td className="py-2 px-3 text-right">
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(emp)}>
+                        <Button variant="ghost" size="sm" onClick={() => openEdit(emp)} title="編集">
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDelete(emp.id)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                        <Button variant="ghost" size="sm" onClick={() => handleRetire(emp)} title="退職にする">
+                          <UserMinus className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
                     </td>
                   </tr>
                 ))}
-                {employees.length === 0 && (
+                {activeEmployees.length === 0 && (
                   <tr>
                     <td colSpan={5} className="py-8 text-center text-muted-foreground">
                       スタッフが登録されていません
@@ -262,6 +290,50 @@ export default function StaffPage() {
           </div>
         </CardContent>
       </Card>
+
+      {retiredEmployees.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">退職したスタッフ（{retiredEmployees.length}名）</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-3 text-sm text-muted-foreground">
+              シフト生成と希望入力の対象外です。過去のシフト・集計・出力にはそのまま残ります。
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b max-lg:whitespace-nowrap">
+                    <th className="py-2 px-3 text-left">氏名</th>
+                    <th className="py-2 px-3 text-left">属性</th>
+                    <th className="py-2 px-3 text-left">退職日</th>
+                    <th className="py-2 px-3 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {retiredEmployees.map((emp) => (
+                    <tr key={emp.id} className="border-b text-muted-foreground">
+                      <td className="py-2 px-3 font-medium max-lg:whitespace-nowrap">{emp.name}</td>
+                      <td className="py-2 px-3 max-lg:whitespace-nowrap">{emp.employment_type === "dependent" ? "扶養内" : "フル勤務"}</td>
+                      <td className="py-2 px-3 max-lg:whitespace-nowrap">{emp.retired_at}</td>
+                      <td className="py-2 px-3 text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => handleUnretire(emp)} title="在籍に戻す">
+                            <UserCheck className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => handleDelete(emp)} title="削除（シフトに載ったことがない場合のみ）">
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

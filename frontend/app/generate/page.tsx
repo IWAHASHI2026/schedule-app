@@ -136,6 +136,10 @@ export default function GeneratePage() {
   for (const a of assignments) {
     assignmentMap[`${a.employee_id}_${a.date}`] = a;
   }
+  // 在籍者と、このシフトに載っている退職者
+  const visibleEmployees = employees.filter(
+    (e) => !e.retired_at || assignments.some((a) => a.employee_id === e.id)
+  );
 
   const dowNames = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -161,7 +165,7 @@ export default function GeneratePage() {
         </CardHeader>
         <CardContent className="space-y-2">
           <div className="flex gap-4">
-            <Badge variant="secondary">登録スタッフ: {employees.length}名</Badge>
+            <Badge variant="secondary">在籍スタッフ: {employees.filter((e) => !e.retired_at).length}名</Badge>
             <Badge
               variant={
                 reqStatusCount.done === reqStatusCount.total ? "success" : "warning"
@@ -272,7 +276,7 @@ export default function GeneratePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {employees.map((emp) => (
+                  {visibleEmployees.map((emp) => (
                     <tr key={emp.id}>
                       <td className="sticky left-0 bg-card z-10 px-2 py-1 border font-medium whitespace-nowrap">
                         {emp.name}

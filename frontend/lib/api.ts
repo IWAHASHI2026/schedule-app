@@ -26,7 +26,11 @@ export interface Employee {
   employment_type: string;  // "full_time" or "dependent"
   sort_order: number;
   job_types: JobType[];
+  retired_at: string | null;  // 退職日。null なら在籍中
 }
+
+/** 在籍中のスタッフだけを返す */
+export const activeEmployees = (employees: Employee[]) => employees.filter((e) => !e.retired_at);
 
 export const getEmployees = () => request<Employee[]>("/employees");
 export const createEmployee = (name: string, employment_type: string = "full_time") =>
@@ -35,6 +39,8 @@ export const updateEmployee = (id: number, name: string, employment_type: string
   request<Employee>(`/employees/${id}`, { method: "PUT", body: JSON.stringify({ name, employment_type }) });
 export const deleteEmployee = (id: number) =>
   request<void>(`/employees/${id}`, { method: "DELETE" });
+export const setEmployeeRetired = (id: number, retired: boolean) =>
+  request<Employee>(`/employees/${id}/retire`, { method: "PUT", body: JSON.stringify({ retired }) });
 export const updateEmployeeJobTypes = (id: number, job_type_ids: number[]) =>
   request<Employee>(`/employees/${id}/job-types`, {
     method: "PUT",

@@ -230,7 +230,7 @@ export default function RequestsPage() {
               <SelectValue placeholder="選択してください" />
             </SelectTrigger>
             <SelectContent>
-              {employees.map((emp) => (
+              {employees.filter((emp) => !emp.retired_at).map((emp) => (
                 <SelectItem key={emp.id} value={emp.id.toString()}>
                   {emp.name}
                 </SelectItem>

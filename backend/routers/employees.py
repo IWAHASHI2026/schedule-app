@@ -1,9 +1,13 @@
 import uuid
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from database import get_db, Employee, EmployeeJobType, JobType
-from models import EmployeeCreate, EmployeeUpdate, EmployeeOut, EmployeeJobTypesUpdate, EmployeeFullUpdate, EmployeeReorder, EmployeeTokenOut, JobTypeOut
+from database import get_db, Employee, EmployeeJobType, JobType, ShiftAssignment
+from models import (
+    EmployeeCreate, EmployeeUpdate, EmployeeOut, EmployeeJobTypesUpdate, EmployeeFullUpdate,
+    EmployeeReorder, EmployeeRetireUpdate, EmployeeTokenOut, JobTypeOut,
+)
 
 router = APIRouter(prefix="/api/employees", tags=["employees"])
 
@@ -18,6 +22,7 @@ def _employee_to_out(emp: Employee) -> EmployeeOut:
             JobTypeOut(id=ejt.job_type.id, name=ejt.job_type.name, color=ejt.job_type.color)
             for ejt in sorted(emp.job_types, key=lambda ejt: ejt.job_type.sort_order)
         ],
+        retired_at=emp.retired_at,
     )
 
 
@@ -66,8 +71,35 @@ def delete_employee(employee_id: int, db: Session = Depends(get_db)):
     emp = db.query(Employee).filter(Employee.id == employee_id).first()
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
+    # 削除は過去のシフト割当も一緒に消す（カスケード）。シフトに載ったことがある
+    # スタッフは記録を残すため削除できない。退職にする
+    has_history = (
+        db.query(ShiftAssignment.id)
+        .filter(ShiftAssignment.employee_id == employee_id)
+        .first()
+        is not None
+    )
+    if has_history:
+        raise HTTPException(
+            status_code=400,
+            detail="過去のシフトに載っているため削除できません。「退職」にしてください（シフト生成の対象から外れ、過去のシフトはそのまま残ります）。",
+        )
     db.delete(emp)
     db.commit()
+
+
+@router.put("/{employee_id}/retire", response_model=EmployeeOut)
+def set_employee_retired(
+    employee_id: int, body: EmployeeRetireUpdate, db: Session = Depends(get_db)
+):
+    """退職 / 復帰を切り替える。退職中はシフト生成・希望入力の対象外になる。"""
+    emp = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    emp.retired_at = date.today() if body.retired else None
+    db.commit()
+    db.refresh(emp)
+    return _employee_to_out(emp)
 
 
 @router.put("/{employee_id}/full", response_model=EmployeeOut)
@@ -99,7 +131,13 @@ def update_employee_full(
 
 @router.get("/tokens", response_model=list[EmployeeTokenOut])
 def list_employee_tokens(db: Session = Depends(get_db)):
-    employees = db.query(Employee).order_by(Employee.sort_order).all()
+    # 退職者には希望入力リンクを出さない
+    employees = (
+        db.query(Employee)
+        .filter(Employee.retired_at.is_(None))
+        .order_by(Employee.sort_order)
+        .all()
+    )
     return [
         EmployeeTokenOut(
             employee_id=emp.id,

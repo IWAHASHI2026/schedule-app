@@ -125,8 +125,13 @@ def generate_schedule(
     company_holidays = get_company_holiday_dates(db)
     working_dates = [d for d in all_dates if not is_non_working_day(d, company_holidays)]
 
-    # Load data
-    employees = db.query(Employee).order_by(Employee.sort_order).all()
+    # Load data（退職者は対象外）
+    employees = (
+        db.query(Employee)
+        .filter(Employee.retired_at.is_(None))
+        .order_by(Employee.sort_order)
+        .all()
+    )
     if not employees:
         raise ValueError("No employees registered")
 

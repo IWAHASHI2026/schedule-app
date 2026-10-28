@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/staff-portal", tags=["staff-portal"])
 
 def _get_employee_by_token(db: Session, token: str) -> Employee:
     emp = db.query(Employee).filter(Employee.staff_token == token).first()
-    if not emp:
+    if not emp or emp.retired_at is not None:  # 退職者のリンクは無効
         raise HTTPException(status_code=404, detail="無効なリンクです")
     return emp
 

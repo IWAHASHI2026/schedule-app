@@ -70,6 +70,9 @@ class Employee(Base):
     employment_type = Column(Text, nullable=False, default="full_time")
     sort_order = Column(Integer, nullable=False, default=0)
     staff_token = Column(Text, nullable=True, unique=True)
+    # 退職日。設定されたスタッフはシフト生成・希望入力の対象から外れるが、
+    # 過去のシフトには残る（削除と違って記録が消えない）
+    retired_at = Column(Date, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -421,6 +424,19 @@ def _migrate_rename_uvc_and_add_tegami():
         pass
 
 
+def _migrate_add_retired_at():
+    """Add retired_at column to employees if missing."""
+    try:
+        columns = _get_existing_columns("employees")
+        if columns and "retired_at" not in columns:
+            with engine.begin() as conn:
+                conn.execute(sa_text(
+                    "ALTER TABLE employees ADD COLUMN retired_at DATE"
+                ))
+    except Exception:
+        pass
+
+
 def _migrate_add_schedule_comment():
     """Add comment column to schedules if it doesn't exist."""
     try:
@@ -447,6 +463,7 @@ def init_db():
     _migrate_add_staff_token()
     _migrate_add_job_type_sort_order()
     _migrate_add_schedule_comment()
+    _migrate_add_retired_at()
     db = SessionLocal()
     try:
         if db.query(JobType).count() == 0:
@@ -526,45 +543,9 @@ def init_db():
         if added:
             db.commit()
 
-        # 途中入社の通常スタッフを追加（既存DBにも適用。名前で冪等に追加）
-        additional_employees = [
-            # (name, employment_type, job_type_names)
-            ("竹下久美子", "dependent", ["その他"]),          # 2026-08 追加
-            ("飛塚由希",   "full_time", ["手紙", "その他"]),  # 2026-09 追加
-        ]
-        emp_added = False
-        jt_map_add = {jt.name: jt.id for jt in db.query(JobType).all()}
-        for name, emp_type, jt_names in additional_employees:
-            if not db.query(Employee).filter(Employee.name == name).first():
-                max_order = max(
-                    (e.sort_order for e in db.query(Employee).all()), default=-1
-                )
-                emp = Employee(name=name, employment_type=emp_type, sort_order=max_order + 1)
-                db.add(emp)
-                db.flush()
-                for jt_name in jt_names:
-                    if jt_name in jt_map_add:
-                        db.add(EmployeeJobType(employee_id=emp.id, job_type_id=jt_map_add[jt_name]))
-                emp_added = True
-        if emp_added:
-            db.commit()
-
-        # 竹下久美子の担当職種を修正: 初期登録の誤り（手紙・その他）→（その他のみ）
-        # 既存DBにも適用。手動で別の組み合わせに変更済みの場合は触らない
-        takeshita = db.query(Employee).filter(Employee.name == "竹下久美子").first()
-        if takeshita:
-            jt_id_to_name = {jt.id: jt.name for jt in db.query(JobType).all()}
-            links = (
-                db.query(EmployeeJobType)
-                .filter(EmployeeJobType.employee_id == takeshita.id)
-                .all()
-            )
-            current = {jt_id_to_name.get(l.job_type_id) for l in links}
-            if current == {"手紙", "その他"}:
-                for l in links:
-                    if jt_id_to_name.get(l.job_type_id) == "手紙":
-                        db.delete(l)
-                db.commit()
+        # 通常スタッフの追加・変更・退職はスタッフ管理画面で行う。起動時には触らない。
+        # （以前あった「名前で追加」「担当職種の修正」は、画面での削除・変更を
+        #   次回の起動で元に戻してしまうため撤去した。2026-10）
     finally:
         db.close()
 
